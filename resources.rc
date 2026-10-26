@@ -1,0 +1,4 @@
+#include <windows.h>
+
+// 101: tray + window icon. Keep the id in sync with main.cpp.
+101 ICON "assets/app.ico"
