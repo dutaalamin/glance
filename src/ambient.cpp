@@ -27,6 +27,50 @@ const KnownApp kKnown[] = {
     {L"msedgewebview2.exe", L""},  // never matched; placeholder for ordering
 };
 
+// Friendly names for AUMIDs we expect to see. Matching is a substring test on
+// the AUMID, which is stable enough: the publisher hash and entry point differ
+// between builds but the product name does not.
+struct KnownAumid {
+  const wchar_t* fragment;
+  const wchar_t* label;
+};
+
+const KnownAumid kKnownAumids[] = {
+    {L"WhatsAppDesktop", L"WhatsApp"},
+    {L"WhatsApp", L"WhatsApp"},
+    {L"Telegram", L"Telegram"},
+    {L"Discord", L"Discord"},
+    {L"Slack", L"Slack"},
+    {L"MSTeams", L"Teams"},
+    {L"ms-teams", L"Teams"},
+    {L"LINE", L"LINE"},
+    {L"Signal", L"Signal"},
+    {L"ScreenSketch", L"Snipping Tool"},
+    {L"windowscommunicationsapps", L"Mail"},
+    {L"WebExperience", L"Widgets"},
+    {L"XboxApp", L"Xbox"},
+    {L"Netflix", L"Netflix"},
+    {L"Print.PrinterCleanupTask", L"Print Cleanup"},
+    {L"SecurityCenter", L"Defender"},
+    {L"stablyai.orca", L"Orca"},
+    {L"Spotify", L"Spotify"},
+};
+
+std::wstring labelForAumid(const std::wstring& aumid) {
+  for (const auto& known : kKnownAumids) {
+    if (wcsstr(aumid.c_str(), known.fragment)) return known.label;
+  }
+  // Unknown app: present the last dotted segment, which is at least readable.
+  std::wstring base = aumid;
+  const size_t bang = base.find(L'!');
+  if (bang != std::wstring::npos) base = base.substr(0, bang);
+  const size_t underscore = base.find(L'_');
+  if (underscore != std::wstring::npos) base = base.substr(0, underscore);
+  const size_t dot = base.find_last_of(L'.');
+  if (dot != std::wstring::npos && dot + 1 < base.size()) base = base.substr(dot + 1);
+  return base;
+}
+
 // Pulls the first "(N)" out of a title. Both "(3) WhatsApp" and "Slack (3)" are
 // in use, so the position is not assumed.
 int unreadFromTitle(const wchar_t* title) {
@@ -140,6 +184,34 @@ IWICBitmapSource* loadIcon(IWICImagingFactory* wic, const std::wstring& path) {
   return result;
 }
 
+// Packaged apps are addressable through the shell namespace, which hands back
+// their real icon even though the process is unpackaged.
+IWICBitmapSource* loadIconFromAumid(IWICImagingFactory* wic, const std::wstring& aumid) {
+  if (!wic || aumid.empty()) return nullptr;
+
+  const std::wstring path = L"shell:AppsFolder\\" + aumid;
+  IShellItemImageFactory* factory = nullptr;
+  if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_IShellItemImageFactory,
+                                        reinterpret_cast<void**>(&factory))) ||
+      !factory) {
+    return nullptr;
+  }
+
+  SIZE size{32, 32};
+  HBITMAP bitmap = nullptr;
+  IWICBitmapSource* result = nullptr;
+  if (SUCCEEDED(factory->GetImage(size, SIIGBF_ICONONLY, &bitmap)) && bitmap) {
+    IWICBitmap* raw = nullptr;
+    if (SUCCEEDED(wic->CreateBitmapFromHBITMAP(bitmap, nullptr, WICBitmapUseAlpha, &raw))) {
+      result = convert(wic, raw);
+      raw->Release();
+    }
+    DeleteObject(bitmap);
+  }
+  factory->Release();
+  return result;
+}
+
 struct EnumCtx {
   Ambient* ambient;
   // Highest count seen per label, so two windows of the same app do not add up
@@ -185,8 +257,9 @@ BOOL CALLBACK enumProc(HWND hwnd, LPARAM data) {
 
 }  // namespace
 
-bool AmbientSource::init(IWICImagingFactory* wic) {
+bool AmbientSource::init(IWICImagingFactory* wic, NotifSource* notifs) {
   wic_ = wic;
+  notifs_ = notifs;
   return true;
 }
 
@@ -196,13 +269,14 @@ void AmbientSource::release() {
       b.icon->Release();
       b.icon = nullptr;
     }
-    if (b.wic) {
-      b.wic->Release();
-      b.wic = nullptr;
-    }
     b.owner = nullptr;
   }
   ambient_.badges.clear();
+
+  for (auto& entry : iconCache_) {
+    if (entry.second) entry.second->Release();
+  }
+  iconCache_.clear();
 }
 
 void AmbientSource::poll() {
@@ -221,61 +295,99 @@ void AmbientSource::poll() {
   if (GetSystemPowerStatus(&status)) {
     // BatteryFlag 128 means "no system battery": a desktop, where a battery
     // readout would be a permanent lie.
-    // The override above wins on a machine with no battery; otherwise trust
-    // the system flag.
     const bool present = (status.BatteryFlag & 128) == 0;
     if (!ambient_.hasBattery) ambient_.hasBattery = present;
+
     if (ambient_.hasBattery && present) {
       ambient_.batteryPct =
           status.BatteryLifePercent <= 100 ? static_cast<int>(status.BatteryLifePercent) : -1;
       ambient_.charging = (status.BatteryFlag & 8) != 0;
       ambient_.acOnline = status.ACLineStatus == 1;
-    } else if (!ambient_.hasBattery) {
-      // Only reset when the override did not already supply a value.
-      ambient_.batteryPct = 0;
-      ambient_.charging = false;
-      ambient_.acOnline = status.ACLineStatus == 1;
     }
   }
 
-  // --- unread badges ---
-  std::vector<std::pair<std::wstring, int>> foundList;
-  std::vector<std::wstring> paths;
-  EnumCtx ctx{&ambient_, &foundList, wic_, &paths};
-  EnumWindows(enumProc, reinterpret_cast<LPARAM>(&ctx));
+  // --- unread counts published in window titles ---
+  // Messaging apps put a real unread number there; the notification store only
+  // knows how many toasts arrived, which is history rather than "unread".
+  std::vector<std::pair<std::wstring, int>> titleCounts;
+  std::vector<std::wstring> titlePaths;
+  {
+    EnumCtx ctx{&ambient_, &titleCounts, wic_, &titlePaths};
+    EnumWindows(enumProc, reinterpret_cast<LPARAM>(&ctx));
+  }
 
-  // Rebuild the badge list, reusing icons for apps that were already showing so
-  // a per-second poll does not re-decode them.
+  // --- apps with recent notifications ---
+  if (notifs_) notifs_->poll();
+
   std::vector<AppBadge> next;
-  next.reserve(foundList.size());
+  constexpr size_t kMaxBadges = 5;
 
-  for (size_t i = 0; i < foundList.size(); ++i) {
-    AppBadge badge;
-    badge.app = foundList[i].first;
-    badge.count = foundList[i].second;
+  auto iconFor = [&](const std::wstring& key) -> IWICBitmapSource* {
+    auto it = iconCache_.find(key);
+    if (it != iconCache_.end()) return it->second;
 
-    auto existing = std::find_if(ambient_.badges.begin(), ambient_.badges.end(),
-                                 [&](const AppBadge& b) { return b.app == badge.app; });
-    if (existing != ambient_.badges.end()) {
-      badge.wic = existing->wic;
-      badge.icon = existing->icon;
-      badge.owner = existing->owner;
-      existing->wic = nullptr;
-      existing->icon = nullptr;
-      existing->owner = nullptr;
-    } else if (wic_) {
-      badge.wic = loadIcon(wic_, paths[i]);
+    IWICBitmapSource* icon = nullptr;
+    if (!key.empty()) {
+      // Keys starting with "shell:" carry an AUMID; anything else is a path.
+      if (key.rfind(L"shell:", 0) == 0) {
+        icon = loadIconFromAumid(wic_, key.substr(6));
+      } else {
+        icon = loadIcon(wic_, key);
+      }
     }
+    iconCache_[key] = icon;
+    return icon;
+  };
 
-    next.push_back(std::move(badge));
+  if (notifs_) {
+    for (const auto& app : notifs_->apps()) {
+      if (next.size() >= kMaxBadges) break;
+
+      AppBadge badge;
+      badge.app = labelForAumid(app.aumid);
+      badge.aumid = app.aumid;
+
+      IWICBitmapSource* icon = iconFor(L"shell:" + app.aumid);
+      if (!icon) continue;  // nothing to draw; a dot would be noise
+
+      badge.wic = icon;
+
+      // Attach a real unread count when the app publishes one in its title.
+      for (const auto& tc : titleCounts) {
+        if (tc.first == badge.app) {
+          badge.count = tc.second;
+          break;
+        }
+      }
+
+      next.push_back(badge);
+    }
   }
 
-  // Anything left in the old list was not carried over: free it.
+  // Title counts for apps that are not in the notification store (the toast has
+  // already been dismissed but the app still knows it has unread messages).
+  for (size_t i = 0; i < titleCounts.size() && next.size() < kMaxBadges; ++i) {
+    const bool already = std::any_of(next.begin(), next.end(), [&](const AppBadge& b) {
+      return b.app == titleCounts[i].first;
+    });
+    if (already) continue;
+
+    AppBadge badge;
+    badge.app = titleCounts[i].first;
+    badge.count = titleCounts[i].second;
+
+    IWICBitmapSource* icon = iconFor(titlePaths[i]);
+    if (!icon) continue;
+    badge.wic = icon;
+
+    next.push_back(badge);
+  }
+
+  // Device bitmaps belong to the previous list's render target; they are rebuilt
+  // by syncIcons for the new one.
   for (auto& old : ambient_.badges) {
     if (old.icon) old.icon->Release();
-    if (old.wic) old.wic->Release();
   }
-
   ambient_.badges = std::move(next);
 }
 
@@ -290,6 +402,7 @@ void AmbientSource::syncIcons(ID2D1RenderTarget* rt) {
       badge.icon->Release();
       badge.icon = nullptr;
     }
+    badge.owner = nullptr;
 
     IWICFormatConverter* converter = nullptr;
     if (FAILED(wic_->CreateFormatConverter(&converter)) || !converter) continue;

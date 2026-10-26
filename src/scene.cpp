@@ -525,15 +525,20 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
       struct Cell {
         size_t index;
         float width;
+        bool hasCount;
       };
       std::vector<Cell> cells;
       float total = 0.0f;
       for (size_t i = 0; i < ambient_->badges.size(); ++i) {
-        wchar_t count[8]{};
-        swprintf(count, 8, L"%d", ambient_->badges[i].count);
-        const float textW = 6.0f * static_cast<float>(wcslen(count)) + 2.0f;
-        const float wcell = iconSize + 3.0f + textW;
-        cells.push_back({i, wcell});
+        const int count = ambient_->badges[i].count;
+        // A count of zero means "this app has something recent, no unread
+        // number published" - draw the icon alone rather than a bare 0.
+        const bool hasCount = count > 0;
+        wchar_t buf[8]{};
+        if (hasCount) swprintf(buf, 8, L"%d", count);
+        const float textW = hasCount ? 6.0f * static_cast<float>(wcslen(buf)) + 3.0f : 0.0f;
+        const float wcell = iconSize + textW;
+        cells.push_back({i, wcell, hasCount});
         total += wcell + (i ? gap : 0.0f);
       }
 
@@ -552,11 +557,13 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
                           accentB);
         }
 
-        wchar_t count[8]{};
-        swprintf(count, 8, L"%d", badge.count);
-        textAt(rt, tiny_, count,
-               D2D1::RectF(bx + iconSize + 3.0f, cy - 8.0f, bx + cells[c].width, cy + 8.0f),
-               textB);
+        if (cells[c].hasCount) {
+          wchar_t count[8]{};
+          swprintf(count, 8, L"%d", badge.count);
+          textAt(rt, tiny_, count,
+                 D2D1::RectF(bx + iconSize + 3.0f, cy - 8.0f, bx + cells[c].width, cy + 8.0f),
+                 textB);
+        }
 
         bx += cells[c].width;
       }

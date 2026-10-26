@@ -3,8 +3,11 @@
 #include <d2d1.h>
 #include <wincodec.h>
 
+#include <map>
 #include <string>
 #include <vector>
+
+#include "notifs.h"
 
 // Ambient idle information: the things worth glancing at without opening
 // anything - battery, and a count of unread messages per app.
@@ -16,8 +19,9 @@
 // a plain exe. Titles are what the app itself decides to publish, which makes
 // them both reliable and free of any privacy question.
 struct AppBadge {
-  std::wstring app;  // "WhatsApp"
-  int count = 0;
+  std::wstring app;    // "WhatsApp"
+  std::wstring aumid;  // icon source for packaged apps
+  int count = 0;       // 0 means icon only
 
   IWICBitmapSource* wic = nullptr;  // icon, DPI independent
   ID2D1Bitmap* icon = nullptr;      // per render target
@@ -42,7 +46,7 @@ struct Ambient {
 
 class AmbientSource {
  public:
-  bool init(IWICImagingFactory* wic);
+  bool init(IWICImagingFactory* wic, NotifSource* notifs);
   void release();
 
   // Cheap enough for the 2 Hz path: one GetSystemPowerStatus and one window
@@ -57,5 +61,10 @@ class AmbientSource {
 
  private:
   IWICImagingFactory* wic_ = nullptr;
+  NotifSource* notifs_ = nullptr;
   Ambient ambient_;
+
+  // Icons are cached per AUMID and per exe path so a 2 Hz poll does not
+  // re-decode them. Freed in release().
+  std::map<std::wstring, IWICBitmapSource*> iconCache_;
 };

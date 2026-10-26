@@ -15,6 +15,7 @@
 #include <string>
 
 #include "ambient.h"
+#include "notifs.h"
 #include "audio.h"
 
 #include "launcher.h"
@@ -47,6 +48,7 @@ Launcher* g_launcher = nullptr;
 AudioControl* g_audio = nullptr;
 MediaSession* g_media = nullptr;
 AmbientSource* g_ambient = nullptr;
+NotifSource* g_notifs = nullptr;
 
 // Which slider the mouse is currently holding. Dragging is tracked here rather
 // than in Scene so the scene stays a pure renderer.
@@ -777,8 +779,13 @@ int main(int argc, char** argv) {
   g_telemetry = new Telemetry();
   if (!g_telemetry->init()) return 1;
 
+  g_notifs = new NotifSource();
+  if (!g_notifs->init()) {
+    fwprintf(stderr, L"glance: notification store unavailable\n");
+  }
+
   g_ambient = new AmbientSource();
-  if (!g_ambient->init(g_wic)) {
+  if (!g_ambient->init(g_wic, g_notifs)) {
     fwprintf(stderr, L"glance: ambient info unavailable\n");
   }
 
@@ -820,6 +827,10 @@ int main(int argc, char** argv) {
       g_ambient->release();
       delete g_ambient;
     }
+    if (g_notifs) {
+      g_notifs->release();
+      delete g_notifs;
+    }
     delete g_telemetry;
     if (g_wic) g_wic->Release();
     if (g_dwrite) g_dwrite->Release();
@@ -859,6 +870,10 @@ int main(int argc, char** argv) {
   if (g_ambient) {
     g_ambient->release();
     delete g_ambient;
+  }
+  if (g_notifs) {
+    g_notifs->release();
+    delete g_notifs;
   }
   delete g_telemetry;
   if (g_wic) g_wic->Release();

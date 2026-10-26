@@ -26,9 +26,10 @@ Nothing else - no charts, no telemetry dashboard, no account.
   on the right. The clock is not repeated there - the notch above already shows it.
 - **Battery**: percentage plus a glyph with a bolt while charging. Hidden on a
   machine with no battery, because `BatteryFlag & 128` says so.
-- **Unread badges**: icon plus count per app. Reads the number the app itself puts
-  in its window title ("(3) WhatsApp", "Slack (3)"), for WhatsApp, Telegram,
-  Discord, Slack, Teams, LINE and Signal.
+- **Notification badges**: one icon per app that has something recent, taken
+  from the Windows notification store. Icon only by default; a count appears when
+  the app publishes a real unread number in its window title ("(7) Telegram").
+  Capped at five, newest first.
 - **No caption row**: the panel used to spell out "click to open / double-click to
   hide" under the last row. The tiles read as buttons on their own, so the line is
   gone and the panel ends just below the grid.
@@ -80,7 +81,10 @@ leaves a half-empty row.
 | Cover art as pixels, decoded through WIC | `Thumbnail` returns an `IRandomAccessStreamReference`, so reading it means open-stream -> read-buffer -> decode. Doing that in the render path would block a frame, so it runs one async step per tick and the result is kept as a 96 px BGRA buffer, not a device bitmap - the panel paints to both the window and the snapshot bitmap. |
 | Cached cover bitmap is discarded with its render target | A device bitmap is owned by the target that created it. The cache compared `artTarget_` against the live target, so a fresh target could be allocated at the same address as a released one and the stale bitmap would be reused. `discardRenderTarget()` and the snapshot teardown now both call `Scene::discardArtBitmap()` first. |
 | `WM_CAPTURECHANGED` clears the drag | Capture can be taken away mid-drag (Alt+Tab, another window, a shell overlay). The drag flag gates the 1 Hz media refresh, so a stolen capture used to freeze the card until restart. |
-| Unread counts from window titles, not the notification centre | `UserNotificationListener` reports `GetAccessStatus = Allowed` here, but `GetNotificationsAsync` never completes (measured: status stayed `Started` for 10 s). Unpackaged processes cannot use it, and shipping requires an MSIX identity. Titles are what the app chooses to publish, so they need no permission and raise no privacy question. |
+| Notifications read from `wpndatabase.db`, not the notification API | `UserNotificationListener` reports `GetAccessStatus = Allowed` here, but `GetNotificationsAsync` never completes (measured: status stayed `Started` for 10 s). Unpackaged processes cannot use it; shipping needs an MSIX identity. The store is opened read-only in WAL mode, so a live reader neither blocks the service nor misses recent rows. Only two columns are read: `Handler.PrimaryId` and `Notification.ArrivalTime`. Content is never touched. |
+| Icon from `shell:AppsFolder\<AUMID>` | Packaged apps expose their real icon through the shell namespace even though the calling process is unpackaged. Verified on WhatsApp, Snipping Tool and Orca AUMIDs; system toast handlers such as `Print.PrinterCleanupTask` have no entry and fall back to no icon rather than a generic square. |
+| Notification count is not the unread count | The store counts toast *arrivals*, which is history: Orca showed 10 arrivals but zero unread. Only "has something recent" is taken from it. The number drawn next to a logo comes from the app's own title, where it means actual unread. Zero counts are not drawn at all - a row of "0"s was the first thing the screenshot showed. |
+| Vendored SQLite, `SQLITE_THREADSAFE=0` | No system SQLite on Windows, and the panel is single-threaded, so the smaller build is the correct one. Compiled once into `build/sqlite3.o` and reused. |
 | Ambient icons rebuilt per render target | Same pattern as the launcher: WIC sources are kept, D2D bitmaps are recreated when the target changes. The snapshot target and the window target are different objects, so sharing one bitmap would be a use-after-free. |
 | `GLANCE_FAKE_BATTERY` override | This machine is a desktop with no battery, so the battery glyph could not be checked otherwise. Format `<percent>` or `<percent>,charging`. Diagnostics only. |
 | COM apartment is MTA | The art chain is four nested WinRT async operations. In an STA those completions are delivered through the thread's message queue, which `--snapshot` never pumps, so the art silently never arrived there. The app uses no STA-only API, so MTA is both simpler and correct. |
@@ -121,7 +125,9 @@ assets/app.ico   tray and window icon (mint eyes on a dark rounded square)
 - Cover art appears one to two seconds after a track starts: the chain needs four
   round trips through the player. A player that offers no thumbnail keeps the
   placeholder note glyph.
-- Unread badges only work for apps that publish a count in their title. A
+- Badges need the notification store to exist. On a fresh profile with no
+  notifications yet, the row is simply absent.
+- Counts only appear for apps that publish a number in their title. A
   browser tab does not, so web WhatsApp shows nothing until its desktop app is
   installed.
 - Seek needs a duration. Live streams report none, so the bar renders as a plain
