@@ -14,7 +14,10 @@ Nothing else - no charts, no telemetry dashboard, no account.
   dropped from the row rather than allowed to collide with the clock, so the time
   never looks crowded. An icon disappears on its own an hour after the last
   notification from that app; nothing has to be dismissed. While a track plays the title takes the clock's place.
-- **Hovering**: grows into a compact panel with one row of the four most-used
+- **Launcher is optional.** `%APPDATA%\Glance\config.ini`, `launcher = off` is the
+  default: the panel is an ambient card with date, battery, volume, notifications
+  and now-playing, no apps at all. Set `launcher = on` for the app row below.
+- **Hovering** (launcher on): grows into a compact panel with one row of the four most-used
   apps, then a **See more (N)** row. Resting the pointer on See more opens the
   full grid by itself; clicking it does the same, immediately. Leaving the panel
   collapses it, so every hover starts the same size.
@@ -34,9 +37,13 @@ Nothing else - no charts, no telemetry dashboard, no account.
 - **Notification icons live in the notch.** The notch is the only thing on screen
   while collapsed, so that is where a glance has to land.
 - **Notification contents live in the panel.** Hovering the notch - the gesture
-  that already opens the panel - reveals up to three rows: app icon, app name,
-  the toast text, and how long ago it arrived. Apps that send images only show as
+  that already opens the panel - reveals up to two rows: app icon, app name, the
+  toast text, and how long ago it arrived. Apps that send images only show as
   name plus time.
+- **Clicking a notification row opens the app.** Not the specific message: toast
+  payloads on this machine carry no `launch` argument, so there is nothing to
+  deep-link to. The app is raised with `IApplicationActivationManager`, falling
+  back to `ShellExecute` on `shell:AppsFolder\<AUMID>`.
 - **No caption row**: the panel used to spell out "click to open / double-click to
   hide" under the last row. The tiles read as buttons on their own, so the line is
   gone and the panel ends just below the grid.
@@ -90,6 +97,9 @@ leaves a half-empty row.
 | `WM_CAPTURECHANGED` clears the drag | Capture can be taken away mid-drag (Alt+Tab, another window, a shell overlay). The drag flag gates the 1 Hz media refresh, so a stolen capture used to freeze the card until restart. |
 | Notifications read from `wpndatabase.db`, not the notification API | `UserNotificationListener` reports `GetAccessStatus = Allowed` here, but `GetNotificationsAsync` never completes (measured: status stayed `Started` for 10 s). Unpackaged processes cannot use it; shipping needs an MSIX identity. The store is opened read-only in WAL mode, so a live reader neither blocks the service nor misses recent rows. Only two columns are read: `Handler.PrimaryId` and `Notification.ArrivalTime`. Content is never touched. |
 | Icon from `shell:AppsFolder\<AUMID>` | Packaged apps expose their real icon through the shell namespace even though the calling process is unpackaged. Verified on WhatsApp, Snipping Tool and Orca AUMIDs; system toast handlers such as `Print.PrinterCleanupTask` have no entry and fall back to no icon rather than a generic square. |
+| Launcher is a config switch, not a second build | The two modes differ by one `if`, not by 95% of the code. Two folders would mean fixing every future bug twice, and they would drift. One INI key keeps both reachable without a rebuild. |
+| Notification click opens the app, not the message | Measured: no toast in the store carries a `launch` argument or action arguments, so nothing identifies the conversation. Claiming a deep link would be a lie; raising the app is honest and still useful. |
+| `IApplicationActivationManager` declared by hand | Same reason as SMTC and the WinRT streams: `shobjidl_core.h` drags in winnt.h and kernelspecs.h, which MinGW cannot mix with its own CRT. Verified against Snipping Tool and WhatsApp AUMIDs. |
 | No tile chrome | A rounded box around every entry made the panel read as a table of buttons. Icons and labels now sit directly on the panel; only the hovered tile paints, and then just a faint wash, so the pointer still gets feedback without permanent containers. The See more row follows the same rule. |
 | Four quick tiles, not a single folder row | A folder row made every app cost an extra click, including the one opened every hour. Four tiles are the same width as the panel's single row and keep the common case at one click; the count moves into the See more label, where it is a fact about the hidden set rather than decoration. |
 | See more opens on hover after 160 ms | Opening on a bare 0 ms hover would fire while the pointer is merely travelling down past the row, growing the panel under the cursor and putting a tile where the click was aimed. 160 ms is shorter than the panel's own 300 ms collapse delay, so the pointer never has to hover with intent. Clicking still works and skips the wait. |

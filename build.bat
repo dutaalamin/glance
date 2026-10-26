@@ -25,7 +25,7 @@ if errorlevel 1 (
 
 g++ -std=c++17 -O2 -DUNICODE -D_UNICODE -Wall -Wextra -Ithird_party ^
   src\main.cpp src\scene.cpp src\telemetry.cpp src\launcher.cpp src\audio.cpp ^
-  src\media.cpp src\ambient.cpp src\notifs.cpp ^
+  src\media.cpp src\ambient.cpp src\notifs.cpp src\activate.cpp src\settings.cpp ^
   build\sqlite3.o build\resources.o ^
   -o build\glance.exe ^
   -ld2d1 -ldwrite -ldwmapi -lwindowscodecs -lole32 -luuid -loleaut32 ^

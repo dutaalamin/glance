@@ -34,6 +34,16 @@ class Scene {
   // Rows the panel will actually show, for height maths before drawing.
   int notificationRowCount() const;
 
+  // Hides the whole launcher: no quick row, no See more, no grid. The panel then
+  // holds only ambient information.
+  void setLauncherVisible(bool visible) { launcherVisible_ = visible; }
+  bool launcherVisible() const { return launcherVisible_; }
+
+  // Notification rows, in the order they are drawn. Returns -1 when the point is
+  // not on one. Only meaningful while the panel is expanded.
+  int hitTestNotification(float x, float y, PanelMode mode) const;
+  std::wstring notificationAumid(int index) const;
+
   // False: one row of the most-used apps plus a "See more" row. True: the full
   // grid. Collapsing the panel resets this, so every hover starts the same size.
   void setFolderRevealed(bool revealed) { folderRevealed_ = revealed; }
@@ -141,6 +151,10 @@ class Scene {
   D2D1_RECT_F folderRect_{};
   bool folderRevealed_ = false;
   bool hoveredSeeMore_ = false;
+  bool launcherVisible_ = false;
+
+  D2D1_RECT_F notifRects_[8]{};
+  int notifRectCount_ = 0;
 
   D2D1_RECT_F progressRect_{};
   D2D1_RECT_F volumeRect_{};

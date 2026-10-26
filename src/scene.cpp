@@ -624,6 +624,7 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
     // Notification list: the notch only has room for icons, so the text lives
     // here. Hovering the notch is the existing "look closer" gesture, so this
     // needs no new interaction.
+    notifRectCount_ = 0;
     if (ambient_) {
       const int rows =
           std::min<int>(static_cast<int>(ambient_->badges.size()), kMaxNotifRows);
@@ -631,6 +632,13 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
 
       for (int i = 0; i < rows; ++i) {
         const AppBadge& badge = ambient_->badges[static_cast<size_t>(i)];
+
+        // The whole row is the click target, not just the icon: the text is what
+        // the pointer naturally aims at.
+        if (notifRectCount_ < 8) {
+          notifRects_[notifRectCount_++] =
+              D2D1::RectF(x, rowY, x + w, rowY + kNotifRowH);
+        }
 
         // Icon
         const float iconSize = 13.0f;
@@ -908,6 +916,12 @@ void Scene::drawPanel(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
 
   const float gridTop = top + kGridTop + mediaHeight;
 
+  if (!launcherVisible_) {
+    tileCount_ = 0;
+    (void)h;
+    return;
+  }
+
   if (folderRevealed_) {
     drawLauncherGrid(rt, pad, gridTop, inner);
   } else {
@@ -955,6 +969,20 @@ void Scene::drawPanel(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
   }
 
   (void)h;
+}
+
+int Scene::hitTestNotification(float x, float y, PanelMode mode) const {
+  if (mode != PanelMode::Expanded) return -1;
+  for (int i = 0; i < notifRectCount_; ++i) {
+    const D2D1_RECT_F& r = notifRects_[i];
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+  }
+  return -1;
+}
+
+std::wstring Scene::notificationAumid(int index) const {
+  if (!ambient_ || index < 0 || index >= static_cast<int>(ambient_->badges.size())) return L"";
+  return ambient_->badges[static_cast<size_t>(index)].aumid;
 }
 
 bool Scene::hitTestFolder(float x, float y, PanelMode mode) const {

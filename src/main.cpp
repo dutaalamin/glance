@@ -14,8 +14,10 @@
 #include <cstdio>
 #include <string>
 
+#include "activate.h"
 #include "ambient.h"
 #include "notifs.h"
+#include "settings.h"
 #include "audio.h"
 
 #include "launcher.h"
@@ -55,6 +57,7 @@ AudioControl* g_audio = nullptr;
 MediaSession* g_media = nullptr;
 AmbientSource* g_ambient = nullptr;
 NotifSource* g_notifs = nullptr;
+settings::Values g_settings;
 
 // Which slider the mouse is currently holding. Dragging is tracked here rather
 // than in Scene so the scene stays a pure renderer.
@@ -133,9 +136,10 @@ float targetWidth() {
 }
 float targetHeight() {
   if (g_mode == PanelMode::Compact) return layout::kNotchH;
-  const size_t apps = g_launcher ? g_launcher->apps().size() : 0;
+  const size_t apps =
+      (g_launcher && (!g_scene || g_scene->launcherVisible())) ? g_launcher->apps().size() : 0;
   const bool withMedia = g_media && g_media->now().hasSession;
-  const bool folderOnly = g_scene && !g_scene->folderRevealed();
+  const bool folderOnly = g_scene && g_scene->launcherVisible() && !g_scene->folderRevealed();
   return Scene::panelHeightFor(apps, withMedia,
                                g_scene ? g_scene->notificationRowCount() : 0, folderOnly);
 }
@@ -481,6 +485,18 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         const float dx = pixelsToDips(px);
         const float dy = pixelsToDips(py);
 
+        const int notif = g_scene->hitTestNotification(dx, dy, g_mode);
+        if (notif >= 0) {
+          const std::wstring aumid = g_scene->notificationAumid(notif);
+          if (!aumid.empty() && activateAumid(aumid)) {
+            // The app we just raised takes the foreground; re-assert topmost so
+            // the notch does not end up buried behind it.
+            SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+          }
+          return 0;
+        }
+
         const int media = g_scene->hitTestMedia(dx, dy, g_mode);
         if (media >= 0 && g_media) {
           if (media == 0) g_media->previous();
@@ -716,12 +732,14 @@ bool savePng(const wchar_t* path, const Snapshot& snap, PanelMode mode, float sc
   }
 
   const float lw = mode == PanelMode::Compact ? layout::kNotchW : layout::kPanelW;
-  const size_t apps = g_launcher ? g_launcher->apps().size() : 0;
+  const size_t apps =
+      (g_launcher && (!g_scene || g_scene->launcherVisible())) ? g_launcher->apps().size() : 0;
   const float lh =
-      mode == PanelMode::Compact ? layout::kNotchH
-                                 : Scene::panelHeightFor(apps, g_media && g_media->now().hasSession,
-                                                         g_scene->notificationRowCount(),
-                                                         !g_scene->folderRevealed());
+      mode == PanelMode::Compact
+          ? layout::kNotchH
+          : Scene::panelHeightFor(apps, g_media && g_media->now().hasSession,
+                                  g_scene->notificationRowCount(),
+                                  g_scene->launcherVisible() && !g_scene->folderRevealed());
 
   const UINT width = static_cast<UINT>(lw * scale);
   const UINT height = static_cast<UINT>(lh * scale);
@@ -833,8 +851,11 @@ int main(int argc, char** argv) {
     fwprintf(stderr, L"glance: no launcher targets resolved\n");
   }
 
+  g_settings = settings::load();
+
   g_scene = new Scene();
   if (!g_scene->init(g_dwrite, g_d2d, g_launcher)) return 1;
+  g_scene->setLauncherVisible(g_settings.launcher);
 
   g_telemetry = new Telemetry();
   if (!g_telemetry->init()) return 1;
