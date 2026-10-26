@@ -346,6 +346,22 @@ void AmbientSource::poll() {
       AppBadge badge;
       badge.app = labelForAumid(app.aumid);
       badge.aumid = app.aumid;
+      badge.title = app.title;
+      badge.body = app.body;
+
+      // Relative age for the panel list. ArrivalTime is FILETIME in UTC, the same
+      // base as GetSystemTimePreciseAsFileTime, so a plain subtraction is valid.
+      if (app.lastArrival > 0) {
+        FILETIME now{};
+        GetSystemTimePreciseAsFileTime(&now);
+        ULARGE_INTEGER value{};
+        value.LowPart = now.dwLowDateTime;
+        value.HighPart = now.dwHighDateTime;
+        if (value.QuadPart > app.lastArrival) {
+          const uint64_t delta = value.QuadPart - app.lastArrival;
+          badge.minutesAgo = static_cast<int>(delta / (60ull * 10000000ull));
+        }
+      }
 
       IWICBitmapSource* icon = iconFor(L"shell:" + app.aumid);
       if (!icon) continue;  // nothing to draw; a dot would be noise

@@ -23,6 +23,12 @@ struct AppBadge {
   std::wstring aumid;  // icon source for packaged apps
   int count = 0;       // 0 means icon only
 
+  // Text from the toast payload, when the app supplied any. Empty for apps that
+  // send images only; the panel row then shows just the app name and time.
+  std::wstring title;
+  std::wstring body;
+  int minutesAgo = -1;
+
   IWICBitmapSource* wic = nullptr;  // icon, DPI independent
   ID2D1Bitmap* icon = nullptr;      // per render target
   ID2D1RenderTarget* owner = nullptr;

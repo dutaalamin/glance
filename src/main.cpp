@@ -129,7 +129,7 @@ float targetHeight() {
   if (g_mode == PanelMode::Compact) return layout::kNotchH;
   const size_t apps = g_launcher ? g_launcher->apps().size() : 0;
   const bool withMedia = g_media && g_media->now().hasSession;
-  return Scene::panelHeightFor(apps, withMedia);
+  return Scene::panelHeightFor(apps, withMedia, g_scene ? g_scene->notificationRowCount() : 0);
 }
 
 void discardRenderTarget() {
@@ -661,7 +661,8 @@ bool savePng(const wchar_t* path, const Snapshot& snap, PanelMode mode, float sc
   const size_t apps = g_launcher ? g_launcher->apps().size() : 0;
   const float lh =
       mode == PanelMode::Compact ? layout::kNotchH
-                                 : Scene::panelHeightFor(apps, g_media && g_media->now().hasSession);
+                                 : Scene::panelHeightFor(apps, g_media && g_media->now().hasSession,
+                                                         g_scene->notificationRowCount());
 
   const UINT width = static_cast<UINT>(lw * scale);
   const UINT height = static_cast<UINT>(lh * scale);

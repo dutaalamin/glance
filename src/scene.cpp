@@ -80,6 +80,8 @@ constexpr float kPanelTop = 38.0f;   // notch strip height
 constexpr float kGridTop = 18.0f;    // space under the notch
 constexpr float kFooterH = 16.0f;  // bottom breathing room only; no caption row
 constexpr float kIdleH = 68.0f;
+constexpr float kNotifRowH = 22.0f;
+constexpr int kMaxNotifRows = 3;
 constexpr float kMediaH = 148.0f;
 constexpr float kSeekHitH = 22.0f;
 // Must match drawVolumeBlock's glyph + gap + slider + gap + percentage maths.
@@ -87,7 +89,12 @@ constexpr float kVolumeBlockW = 14.0f + 8.0f + 64.0f;
 constexpr float kCardPad = 16.0f;
 }  // namespace
 
-float Scene::panelHeightFor(size_t appCount, bool withMedia) {
+int Scene::notificationRowCount() const {
+  if (!ambient_) return 0;
+  return std::min<int>(static_cast<int>(ambient_->badges.size()), kMaxNotifRows);
+}
+
+float Scene::panelHeightFor(size_t appCount, bool withMedia, int notifRows) {
   const int cols = appCount <= 4 ? static_cast<int>(appCount) : 4;
   const int count = static_cast<int>(appCount);
   const int rows = cols > 0 ? (count + cols - 1) / cols : 0;
@@ -97,7 +104,9 @@ float Scene::panelHeightFor(size_t appCount, bool withMedia) {
                                : 0.0f;
   // The strip above the grid is the media card when something is playing and a
   // bare volume slider otherwise, so the grid never jumps between the two.
-  const float strip = withMedia ? kMediaH : kIdleH;
+  const int notifLines = withMedia ? 0 : std::clamp(notifRows, 0, kMaxNotifRows);
+  const float strip =
+      withMedia ? kMediaH : (kIdleH + static_cast<float>(notifLines) * kNotifRowH);
   return kPanelTop + kGridTop + strip + grid + kFooterH;
 }
 
@@ -599,12 +608,71 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
     drawVolumeBlock(rt, d2d_, tiny_, volumeRight, cy, volume_, muted_, volumeAvailable_,
                     &volumeRect_);
 
+    // Notification list: the notch only has room for icons, so the text lives
+    // here. Hovering the notch is the existing "look closer" gesture, so this
+    // needs no new interaction.
+    if (ambient_) {
+      const int rows =
+          std::min<int>(static_cast<int>(ambient_->badges.size()), kMaxNotifRows);
+      float rowY = y + kIdleH;
+
+      for (int i = 0; i < rows; ++i) {
+        const AppBadge& badge = ambient_->badges[static_cast<size_t>(i)];
+
+        // Icon
+        const float iconSize = 13.0f;
+        if (badge.icon) {
+          rt->DrawBitmap(badge.icon,
+                         D2D1::RectF(x + 4.0f, rowY + 3.0f, x + 4.0f + iconSize,
+                                     rowY + 3.0f + iconSize),
+                         1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        } else {
+          rt->FillEllipse(
+              D2D1::Ellipse(D2D1::Point2F(x + 4.0f + iconSize * 0.5f, rowY + 9.5f), 3.0f,
+                            3.0f),
+              accentB);
+        }
+
+        // Relative time, right-aligned so the text column has a fixed end.
+        wchar_t when[16]{};
+        if (badge.minutesAgo <= 0) {
+          wcscpy_s(when, L"now");
+        } else if (badge.minutesAgo < 60) {
+          swprintf(when, 16, L"%dm", badge.minutesAgo);
+        } else {
+          swprintf(when, 16, L"%dh", badge.minutesAgo / 60);
+        }
+        textAt(rt, tiny_, when,
+               D2D1::RectF(x + w - 44.0f, rowY + 2.0f, x + w - 6.0f, rowY + 18.0f), mutedB,
+               DWRITE_TEXT_ALIGNMENT_TRAILING);
+
+        // App name, then the message. Falls back to the body alone when the
+        // payload carried no title.
+        const std::wstring label = elide(badge.app, 12);
+        std::wstring line = label;
+        const std::wstring message = !badge.body.empty() ? badge.body : badge.title;
+        if (!message.empty()) line += L"  " + elide(message, 46);
+
+        textAt(rt, small_, line.c_str(),
+               D2D1::RectF(x + 4.0f + iconSize + 6.0f, rowY + 2.0f, x + w - 50.0f,
+                           rowY + 18.0f),
+               message.empty() ? mutedB : textB);
+
+        rowY += kNotifRowH;
+      }
+    }
+
     if (accentB) accentB->Release();
     if (trackB) trackB->Release();
     if (mutedB) mutedB->Release();
     if (textB) textB->Release();
     if (tileB) tileB->Release();
-    return kIdleH;
+
+    // Must report the height actually used, or the grid is drawn on top of the
+    // notification rows and only the empty reserved space remains visible.
+    const int shown =
+        ambient_ ? std::min<int>(static_cast<int>(ambient_->badges.size()), kMaxNotifRows) : 0;
+    return kIdleH + static_cast<float>(shown) * kNotifRowH;
   }
 
   const D2D1_RECT_F card = D2D1::RectF(x, y, x + w, y + kMediaH - 8.0f);

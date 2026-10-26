@@ -28,7 +28,10 @@ class Scene {
  public:
   // Height that exactly fits the launcher grid (and the now-playing card when
   // something is playing), so the panel never shows a pool of empty space.
-  static float panelHeightFor(size_t appCount, bool withMedia);
+  static float panelHeightFor(size_t appCount, bool withMedia, int notifRows = 0);
+
+  // Rows the panel will actually show, for height maths before drawing.
+  int notificationRowCount() const;
 
   bool init(IDWriteFactory* dwrite, ID2D1Factory* d2d, Launcher* launcher);
   void draw(ID2D1RenderTarget* rt, const Snapshot& snap, PanelMode mode, float width,

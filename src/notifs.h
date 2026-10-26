@@ -22,9 +22,15 @@
 
 struct NotifApp {
   std::wstring aumid;
-  std::wstring label;      // friendly name when known, otherwise trimmed AUMID
-  int count = 0;           // notifications inside the window
+  std::wstring label;  // friendly name when known, otherwise trimmed AUMID
+  int count = 0;       // notifications inside the window
   uint64_t lastArrival = 0;  // FILETIME, 100 ns since 1601
+
+  // Text carried by the toast payload, when the app supplies any. Plenty of
+  // apps send images only (Netflix, Widgets), so both may be empty - the row
+  // then falls back to the app name and a relative time.
+  std::wstring title;
+  std::wstring body;
 };
 
 class NotifSource {

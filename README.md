@@ -28,9 +28,12 @@ Nothing else - no charts, no telemetry dashboard, no account.
   on the right. The clock is not repeated there - the notch above already shows it.
 - **Battery**: percentage plus a glyph with a bolt while charging. Hidden on a
   machine with no battery, because `BatteryFlag & 128` says so.
-- **Notification icons live in the notch, not the panel.** The notch is the only
-  thing on screen while collapsed or while the panel is closed, so that is where
-  a glance has to land. The expanded panel shows date, battery and volume only.
+- **Notification icons live in the notch.** The notch is the only thing on screen
+  while collapsed, so that is where a glance has to land.
+- **Notification contents live in the panel.** Hovering the notch - the gesture
+  that already opens the panel - reveals up to three rows: app icon, app name,
+  the toast text, and how long ago it arrived. Apps that send images only show as
+  name plus time.
 - **No caption row**: the panel used to spell out "click to open / double-click to
   hide" under the last row. The tiles read as buttons on their own, so the line is
   gone and the panel ends just below the grid.
@@ -88,6 +91,7 @@ leaves a half-empty row.
 | Notch widened to 268 dip | Four 15 px icons plus gaps need the room; at 236 the group overlapped the clock. |
 | Icons expire after 60 minutes, no dismissal gesture | Every mouse gesture on the notch is already taken: movement expands the panel, right-click hides the island, middle-click mutes, and the left-drag area belongs to the volume and seek sliders. A click target on the 40 px pill would also fire *after* the panel had already opened. Time-based expiry needs no gesture, cannot be triggered by accident, and matches what an ambient indicator should be - a hint about the recent past, not a queue to manage. |
 | Badges in the notch, not the panel | Measured: the panel is invisible while collapsed, which is most of the time. Putting the icons next to the clock makes them readable at a glance; the panel keeps the date, battery and volume. |
+| Notification text parsed from the toast payload | Toasts are XML binding documents; every visible string sits in a `<text>` element, sometimes wrapped in `<run>`/`<span>`. Tags are stripped rather than parsed structurally because the schema differs per app. Netflix and Widgets send images with no text at all, so those rows fall back to name and age. |
 | Notification count is not the unread count | The store counts toast *arrivals*, which is history: Orca showed 10 arrivals but zero unread. Only "has something recent" is taken from it. The number drawn next to a logo comes from the app's own title, where it means actual unread. Zero counts are not drawn at all - a row of "0"s was the first thing the screenshot showed. |
 | Vendored SQLite, `SQLITE_THREADSAFE=0` | No system SQLite on Windows, and the panel is single-threaded, so the smaller build is the correct one. Compiled once into `build/sqlite3.o` and reused. |
 | Ambient icons rebuilt per render target | Same pattern as the launcher: WIC sources are kept, D2D bitmaps are recreated when the target changes. The snapshot target and the window target are different objects, so sharing one bitmap would be a use-after-free. |
