@@ -365,12 +365,13 @@ void Scene::drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w,
 
     const bool hovered = (static_cast<int>(i) == hoveredTile_);
 
-    ID2D1LinearGradientBrush* fill = hovered ? hoverGrad : tileGrad;
-    if (!fill) fill = tileGrad;
-    fill->SetStartPoint(D2D1::Point2F(r.left, r.top));
-    fill->SetEndPoint(D2D1::Point2F(r.left, r.bottom));
-    rt->FillRoundedRectangle(D2D1::RoundedRect(r, 20.0f, 20.0f), fill);
-    strokeRound(rt, hovered ? accentB : strokeB, r, 20.0f);
+    // No tile chrome: the icon and its label sit directly on the panel. A box
+    // around every entry turned a launcher into a table of buttons. Hover is the
+    // only state that paints, and then just a faint wash so the pointer still
+    // has feedback.
+    if (hovered) {
+      fillRound(rt, hoverB, r, 18.0f);
+    }
 
     const float iconSize = 38.0f;
     const float iconTop = ty + 14.0f;
@@ -392,7 +393,7 @@ void Scene::drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w,
     textAt(rt, tile_, label.c_str(),
            D2D1::RectF(r.left + 6.0f, ty + kGridTileH - 38.0f, r.right - 6.0f,
                        ty + kGridTileH - 9.0f),
-           hovered ? textB : mutedB, DWRITE_TEXT_ALIGNMENT_CENTER);
+           textB, DWRITE_TEXT_ALIGNMENT_CENTER);
 
     if (tileCount_ < 12) tileRects_[tileCount_++] = r;
   }
@@ -931,8 +932,9 @@ void Scene::drawPanel(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
     const float y = gridTop + static_cast<float>(kGridTileH) + kGridGap + kFolderGap;
     folderRect_ = D2D1::RectF(pad, y, pad + inner, y + kSeeMoreH);
 
+    // Same rule as the tiles: no container, just the label.
     const bool hot = hoveredSeeMore_;
-    fillRound(rt, hot ? hover : fill, folderRect_, 14.0f);
+    if (hot) fillRound(rt, hover, folderRect_, 14.0f);
 
     const size_t hidden = launcher_ ? launcher_->apps().size() - quick : 0;
     wchar_t label[48]{};
