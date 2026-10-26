@@ -15,7 +15,7 @@
 // Hovering: it grows downward into a panel with the launcher and metrics.
 // The window never moves sideways; it expands around its own centre line.
 namespace layout {
-constexpr float kNotchW = 236.0f;
+constexpr float kNotchW = 268.0f;
 constexpr float kNotchH = 40.0f;
 constexpr float kPanelW = 452.0f;
 constexpr float kPanelH = 318.0f;

@@ -260,36 +260,46 @@ void Scene::drawNotch(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
 
   const float iconSize = 15.0f;
   const float iconGap = 7.0f;
-  const float clockGap = 8.0f;
+  const float rightPad = 16.0f;
+  const float clockToIcon = 14.0f;
 
+  // The clock stays exactly on the notch centre line. Centring clock+icons as one
+  // group moved the time off-centre every time a badge appeared, which read as
+  // cramped. Icons are anchored to the right edge instead, and the count is
+  // reduced until they clear the clock.
   const float clockW = measureText(clock, timeNotch_);
-  const float iconsW = static_cast<float>(maxIcons) * iconSize +
-                       static_cast<float>(maxIcons - 1) * iconGap;
-  const float groupW = clockW + (clockW > 0.0f ? clockGap : 0.0f) + iconsW;
+  const float clockLeft = (w - clockW) * 0.5f;
 
-  // Centre the clock-plus-icons group as one unit, so the notch still reads as
-  // balanced rather than the clock drifting left as badges appear.
-  float x = (w - groupW) * 0.5f;
-  if (x < 4.0f) x = 4.0f;
+  int icons = maxIcons;
+  float iconsW = 0.0f;
+  while (icons > 0) {
+    iconsW = static_cast<float>(icons) * iconSize +
+             static_cast<float>(icons - 1) * iconGap;
+    if (w - rightPad - iconsW >= clockLeft + clockW + clockToIcon) break;
+    --icons;
+  }
 
-  textAt(rt, timeNotch_, clock, D2D1::RectF(x, cy - 10.0f, x + clockW + 2.0f, cy + 10.0f),
-         textB, DWRITE_TEXT_ALIGNMENT_LEADING);
+  textAt(rt, timeNotch_, clock,
+         D2D1::RectF(clockLeft, cy - 10.0f, clockLeft + clockW + 2.0f, cy + 10.0f), textB,
+         DWRITE_TEXT_ALIGNMENT_LEADING);
 
-  float ix = x + clockW + (clockW > 0.0f ? clockGap : 0.0f);
-  for (int i = 0; i < maxIcons; ++i) {
-    const AppBadge& badge = ambient_->badges[static_cast<size_t>(i)];
-    const D2D1_RECT_F r =
-        D2D1::RectF(ix, cy - iconSize * 0.5f, ix + iconSize, cy + iconSize * 0.5f);
+  if (icons > 0) {
+    float ix = w - rightPad - iconsW;
+    for (int i = 0; i < icons; ++i) {
+      const AppBadge& badge = ambient_->badges[static_cast<size_t>(i)];
+      const D2D1_RECT_F r =
+          D2D1::RectF(ix, cy - iconSize * 0.5f, ix + iconSize, cy + iconSize * 0.5f);
 
-    if (badge.icon) {
-      rt->DrawBitmap(badge.icon, r, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-    } else {
-      // No icon resolved: a dot still says "something happened here".
-      rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ix + iconSize * 0.5f, cy), 3.5f, 3.5f),
-                      accentB);
+      if (badge.icon) {
+        rt->DrawBitmap(badge.icon, r, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+      } else {
+        // No icon resolved: a dot still says "something happened here".
+        rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ix + iconSize * 0.5f, cy), 3.5f, 3.5f),
+                        accentB);
+      }
+
+      ix += iconSize + iconGap;
     }
-
-    ix += iconSize + iconGap;
   }
 
   if (accentB) accentB->Release();
