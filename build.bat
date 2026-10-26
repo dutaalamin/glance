@@ -13,10 +13,11 @@ if errorlevel 1 (
 )
 
 g++ -std=c++17 -O2 -DUNICODE -D_UNICODE -Wall -Wextra ^
-  src\main.cpp src\scene.cpp src\telemetry.cpp src\launcher.cpp src\audio.cpp src\media.cpp build\resources.o ^
+  src\main.cpp src\scene.cpp src\telemetry.cpp src\launcher.cpp src\audio.cpp ^
+  src\media.cpp src\ambient.cpp build\resources.o ^
   -o build\glance.exe ^
   -ld2d1 -ldwrite -ldwmapi -lwindowscodecs -lole32 -luuid -loleaut32 ^
-  -lpdh -lpsapi -liphlpapi -lws2_32 -lgdi32 -luser32 -lshell32 ^
+  -lpdh -lpsapi -liphlpapi -lws2_32 -lgdi32 -luser32 -lshell32 -lshlwapi ^
   -static-libgcc -static-libstdc++ -static ^
   -mwindows
 

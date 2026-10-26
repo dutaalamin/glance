@@ -307,6 +307,56 @@ void Scene::drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w) {
 
 namespace {
 
+// Battery: outline, proportional fill, terminal nub, and a bolt while charging.
+// Drawn as a real glyph rather than a bar so it is recognisable at 11 px tall.
+void drawBattery(ID2D1Factory* factory, ID2D1RenderTarget* rt, ID2D1SolidColorBrush* stroke,
+                 ID2D1SolidColorBrush* fill, ID2D1SolidColorBrush* cut, float right,
+                 float cy, int pct, bool charging) {
+  const float w = 24.0f;
+  const float h = 11.0f;
+  const float left = right - w;
+  const D2D1_RECT_F body = D2D1::RectF(left, cy - h * 0.5f, left + w, cy + h * 0.5f);
+
+  rt->DrawRoundedRectangle(D2D1::RoundedRect(body, 3.0f, 3.0f), stroke, 1.2f);
+  rt->FillRectangle(D2D1::RectF(body.right + 1.0f, cy - 2.0f, body.right + 3.0f, cy + 2.0f),
+                    stroke);
+
+  if (pct >= 0) {
+    const float innerW = (w - 4.0f) * (static_cast<float>(pct) / 100.0f);
+    if (innerW > 0.5f) {
+      rt->FillRectangle(
+          D2D1::RectF(body.left + 2.0f, body.top + 2.0f, body.left + 2.0f + innerW,
+                      body.bottom - 2.0f),
+          fill);
+    }
+  }
+
+  if (charging && factory) {
+    ID2D1PathGeometry* geo = nullptr;
+    ID2D1GeometrySink* sink = nullptr;
+    if (SUCCEEDED(factory->CreatePathGeometry(&geo)) && geo && SUCCEEDED(geo->Open(&sink))) {
+      const float cx = left + w * 0.5f;
+      sink->BeginFigure(D2D1::Point2F(cx + 2.5f, cy - 5.0f), D2D1_FIGURE_BEGIN_FILLED);
+      sink->AddLine(D2D1::Point2F(cx - 2.5f, cy + 0.5f));
+      sink->AddLine(D2D1::Point2F(cx - 0.2f, cy + 0.5f));
+      sink->AddLine(D2D1::Point2F(cx - 2.0f, cy + 5.0f));
+      sink->AddLine(D2D1::Point2F(cx + 3.0f, cy - 1.0f));
+      sink->AddLine(D2D1::Point2F(cx + 0.5f, cy - 1.0f));
+      sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+      sink->Close();
+      // Cut-out only reads when there is fill behind it; on a nearly empty
+      // battery the bolt has to be the accent colour instead.
+      rt->FillGeometry(geo, pct >= 25 ? cut : stroke);
+    }
+    if (sink) sink->Release();
+    if (geo) geo->Release();
+  }
+}
+
+}  // namespace
+
+namespace {
+
 // Speaker glyph plus slider plus percentage, right-aligned and ending at `right`.
 // Shared by the media card and the bare volume strip so both read identically.
 float drawVolumeBlock(ID2D1RenderTarget* rt, ID2D1Factory* factory, IDWriteTextFormat* tiny,
@@ -437,15 +487,83 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
   rt->CreateSolidColorBrush(kMint, &accentB);
 
   if (!media_.hasSession) {
-    // Idle: date on the left, volume on the right. The clock deliberately does
-    // NOT repeat here - the notch directly above already shows it, and printing
-    // the same time twice in one 460 px tall panel read as a mistake.
+    // Idle: date on the left; battery and unread badges on the right, with the
+    // volume slider outermost. The clock deliberately does NOT repeat here - the
+    // notch directly above already shows it.
     if (!snap.date.empty()) {
       textAt(rt, small_, snap.date.c_str(),
-             D2D1::RectF(x + 4.0f, y + 22.0f, x + w * 0.62f, y + 44.0f), textB);
+             D2D1::RectF(x + 4.0f, y + 22.0f, x + w * 0.52f, y + 44.0f), textB);
     }
-    drawVolumeBlock(rt, d2d_, tiny_, x + w - kCardPad, y + 30.0f, volume_, muted_,
-                    volumeAvailable_, &volumeRect_);
+
+    const float cy = y + 30.0f;
+    const float volumeRight = x + w - kCardPad;
+    float cursor = volumeRight - kVolumeBlockW - 14.0f;
+
+    // Battery, right to left: glyph then percentage.
+    if (ambient_ && ambient_->hasBattery) {
+      drawBattery(d2d_, rt, trackB, accentB, tileB, cursor, cy, ambient_->batteryPct,
+                  ambient_->charging);
+
+      wchar_t pct[8]{};
+      if (ambient_->batteryPct >= 0) {
+        swprintf(pct, 8, L"%d%%", ambient_->batteryPct);
+      } else {
+        wcscpy_s(pct, L"--");
+      }
+      textAt(rt, tiny_, pct, D2D1::RectF(cursor - 56.0f, cy - 8.0f, cursor - 28.0f, cy + 8.0f),
+             mutedB, DWRITE_TEXT_ALIGNMENT_TRAILING);
+      cursor -= 56.0f + 12.0f;
+    }
+
+    // Unread badges, also right-aligned so they sit next to the battery.
+    if (ambient_ && !ambient_->badges.empty()) {
+      const float iconSize = 15.0f;
+      const float gap = 10.0f;
+
+      // Measure right to left, then draw left to right - keeps the list's own
+      // order while staying anchored to the right edge.
+      struct Cell {
+        size_t index;
+        float width;
+      };
+      std::vector<Cell> cells;
+      float total = 0.0f;
+      for (size_t i = 0; i < ambient_->badges.size(); ++i) {
+        wchar_t count[8]{};
+        swprintf(count, 8, L"%d", ambient_->badges[i].count);
+        const float textW = 6.0f * static_cast<float>(wcslen(count)) + 2.0f;
+        const float wcell = iconSize + 3.0f + textW;
+        cells.push_back({i, wcell});
+        total += wcell + (i ? gap : 0.0f);
+      }
+
+      float bx = cursor - total;
+      for (size_t c = 0; c < cells.size(); ++c) {
+        const AppBadge& badge = ambient_->badges[cells[c].index];
+        if (c > 0) bx += gap;
+
+        if (badge.icon) {
+          const D2D1_RECT_F r = D2D1::RectF(bx, cy - iconSize * 0.5f, bx + iconSize,
+                                            cy + iconSize * 0.5f);
+          rt->DrawBitmap(badge.icon, r, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        } else {
+          // No icon available: a dot still conveys that something is unread.
+          rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(bx + iconSize * 0.5f, cy), 4.0f, 4.0f),
+                          accentB);
+        }
+
+        wchar_t count[8]{};
+        swprintf(count, 8, L"%d", badge.count);
+        textAt(rt, tiny_, count,
+               D2D1::RectF(bx + iconSize + 3.0f, cy - 8.0f, bx + cells[c].width, cy + 8.0f),
+               textB);
+
+        bx += cells[c].width;
+      }
+    }
+
+    drawVolumeBlock(rt, d2d_, tiny_, volumeRight, cy, volume_, muted_, volumeAvailable_,
+                    &volumeRect_);
 
     if (accentB) accentB->Release();
     if (trackB) trackB->Release();

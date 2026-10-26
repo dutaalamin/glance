@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <string>
 
+#include "ambient.h"
 #include "audio.h"
 
 #include "launcher.h"
@@ -45,6 +46,7 @@ Telemetry* g_telemetry = nullptr;
 Launcher* g_launcher = nullptr;
 AudioControl* g_audio = nullptr;
 MediaSession* g_media = nullptr;
+AmbientSource* g_ambient = nullptr;
 
 // Which slider the mouse is currently holding. Dragging is tracked here rather
 // than in Scene so the scene stays a pure renderer.
@@ -261,6 +263,10 @@ void animate() {
 
   if (ensureRenderTarget()) {
     g_renderTarget->BeginDraw();
+    if (g_ambient) {
+      g_ambient->syncIcons(g_renderTarget);
+      g_scene->setAmbient(&g_ambient->state());
+    }
     g_scene->draw(g_renderTarget, g_telemetry->snap(), g_mode, g_w, g_h);
     if (g_renderTarget->EndDraw() == D2DERR_RECREATE_TARGET) discardRenderTarget();
   }
@@ -309,6 +315,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // shows whatever it last wrote, which reads as a slider that does nothing.
         syncVolume();
         syncMedia();
+        if (g_ambient) g_ambient->poll();
         ++g_samples;
         const uint64_t sig = g_telemetry->signature();
         if (sig != g_lastSignature) {
@@ -525,7 +532,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
       if (ensureRenderTarget() && g_telemetry) {
         syncVolume();
         g_renderTarget->BeginDraw();
-        g_scene->draw(g_renderTarget, g_telemetry->snap(), g_mode, g_w, g_h);
+        if (g_ambient) {
+      g_ambient->syncIcons(g_renderTarget);
+      g_scene->setAmbient(&g_ambient->state());
+    }
+    g_scene->draw(g_renderTarget, g_telemetry->snap(), g_mode, g_w, g_h);
 
         if (g_renderTarget->EndDraw() == D2DERR_RECREATE_TARGET) {
           discardRenderTarget();
@@ -639,6 +650,11 @@ bool savePng(const wchar_t* path, const Snapshot& snap, PanelMode mode, float sc
     g_scene->setNowPlaying(g_media->now());
   }
 
+  if (g_ambient) {
+    g_ambient->poll();
+    g_ambient->syncIcons(nullptr);
+  }
+
   const float lw = mode == PanelMode::Compact ? layout::kNotchW : layout::kPanelW;
   const size_t apps = g_launcher ? g_launcher->apps().size() : 0;
   const float lh =
@@ -666,6 +682,10 @@ bool savePng(const wchar_t* path, const Snapshot& snap, PanelMode mode, float sc
   }
 
   rt->BeginDraw();
+  if (g_ambient) {
+    g_ambient->syncIcons(rt);
+    g_scene->setAmbient(&g_ambient->state());
+  }
   g_scene->draw(rt, snap, mode, lw, lh);
   rt->EndDraw();
 
@@ -757,6 +777,11 @@ int main(int argc, char** argv) {
   g_telemetry = new Telemetry();
   if (!g_telemetry->init()) return 1;
 
+  g_ambient = new AmbientSource();
+  if (!g_ambient->init(g_wic)) {
+    fwprintf(stderr, L"glance: ambient info unavailable\n");
+  }
+
   g_media = new MediaSession();
   if (!g_media->init(g_wic)) {
     fwprintf(stderr, L"glance: media session unavailable\n");
@@ -790,6 +815,10 @@ int main(int argc, char** argv) {
     if (g_media) {
       g_media->release();
       delete g_media;
+    }
+    if (g_ambient) {
+      g_ambient->release();
+      delete g_ambient;
     }
     delete g_telemetry;
     if (g_wic) g_wic->Release();
@@ -826,6 +855,10 @@ int main(int argc, char** argv) {
   if (g_media) {
     g_media->release();
     delete g_media;
+  }
+  if (g_ambient) {
+    g_ambient->release();
+    delete g_ambient;
   }
   delete g_telemetry;
   if (g_wic) g_wic->Release();

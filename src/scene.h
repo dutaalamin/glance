@@ -4,6 +4,7 @@
 #include <dwrite.h>
 #include <wincodec.h>
 
+#include "ambient.h"
 #include "launcher.h"
 #include "media.h"
 #include "telemetry.h"
@@ -65,6 +66,10 @@ class Scene {
   // is released - otherwise the cache check can match a dangling pointer.
   void discardArtBitmap();
 
+  // Idle-strip extras: battery and unread badges. `source` must outlive the
+  // scene and must already have had syncIcons() called for the active target.
+  void setAmbient(const Ambient* source) { ambient_ = source; }
+
   void setVolume(float level, bool muted, bool available) {
     volume_ = level;
     muted_ = muted;
@@ -108,6 +113,7 @@ class Scene {
   int tileCount_ = 0;
   int hoveredTile_ = -1;
 
+  const Ambient* ambient_ = nullptr;
   NowPlaying media_;
   D2D1_RECT_F mediaButtons_[3]{};
   bool mediaButtonsValid_ = false;
