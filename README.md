@@ -15,9 +15,9 @@ Nothing else - no charts, no telemetry dashboard, no account.
   never looks crowded. An icon disappears on its own an hour after the last
   notification from that app; nothing has to be dismissed. While a track plays the title takes the clock's place.
 - **Hovering**: grows into a compact panel with one row of the four most-used
-  apps, then a **See more (N)** row. The four are one click away; See more opens
-  the full 4-column grid. Leaving the panel collapses it, so every hover starts
-  the same size.
+  apps, then a **See more (N)** row. Resting the pointer on See more opens the
+  full grid by itself; clicking it does the same, immediately. Leaving the panel
+  collapses it, so every hover starts the same size.
 - **Now playing**: when any player is active (Spotify, browsers, VLC, Groove) a
   card above the grid shows the track, a seekable progress bar with elapsed and
   total time, cover art and prev / play-pause / next centred on the card. While
@@ -92,6 +92,7 @@ leaves a half-empty row.
 | Icon from `shell:AppsFolder\<AUMID>` | Packaged apps expose their real icon through the shell namespace even though the calling process is unpackaged. Verified on WhatsApp, Snipping Tool and Orca AUMIDs; system toast handlers such as `Print.PrinterCleanupTask` have no entry and fall back to no icon rather than a generic square. |
 | No tile chrome | A rounded box around every entry made the panel read as a table of buttons. Icons and labels now sit directly on the panel; only the hovered tile paints, and then just a faint wash, so the pointer still gets feedback without permanent containers. The See more row follows the same rule. |
 | Four quick tiles, not a single folder row | A folder row made every app cost an extra click, including the one opened every hour. Four tiles are the same width as the panel's single row and keep the common case at one click; the count moves into the See more label, where it is a fact about the hidden set rather than decoration. |
+| See more opens on hover after 160 ms | Opening on a bare 0 ms hover would fire while the pointer is merely travelling down past the row, growing the panel under the cursor and putting a tile where the click was aimed. 160 ms is shorter than the panel's own 300 ms collapse delay, so the pointer never has to hover with intent. Clicking still works and skips the wait. |
 | `drawLauncherGrid` takes a `limit` | The same code draws the one-row preview and the full grid. A limit, rather than a second renderer, means tile rects, hover state and hit testing cannot drift between the two modes. |
 | Apps grid behind one folder row | Twelve tiles needed 440 dip - 52% of a 1080p work area - and the panel is opened dozens of times a day. A single row cuts the resting panel to 354 dip. The cost is one extra click; the alternative (6 columns) broke labels like "Remote Desktop" into unreadable fragments, and 5 columns did not reduce the row count at all. |
 | Folder reveal resizes instantly, not animated | The animated path resizes the window repeatedly and each resize fires `WM_MOUSELEAVE`, which schedules a collapse - and collapsing resets the folder. One instant resize has neither problem and cannot be undone by a stray mouse event. |

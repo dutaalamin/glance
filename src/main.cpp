@@ -28,6 +28,7 @@ namespace {
 constexpr UINT_PTR kSampleTimer = 1;
 constexpr UINT_PTR kAnimTimer = 2;
 constexpr UINT_PTR kCollapseTimer = 4;
+constexpr UINT_PTR kSeeMoreTimer = 5;
 
 #define WM_TRAYICON (WM_APP + 1)
 #define WM_SHOW_FROM_SECOND_INSTANCE (WM_APP + 2)
@@ -35,6 +36,11 @@ constexpr UINT_PTR kCollapseTimer = 4;
 #define IDM_EXIT 40002
 #define IDM_TOGGLE 40003
 constexpr UINT kCollapseDelayMs = 300;
+
+// How long the pointer must rest on the See more row before the full grid opens.
+// Zero would fire while the pointer is merely travelling down past it, which
+// grows the panel under the cursor and can put a tile under the click target.
+constexpr UINT kSeeMoreDwellMs = 160;
 
 constexpr UINT kSampleIntervalMs = 1000;
 constexpr UINT kAnimIntervalMs = 15;
@@ -286,6 +292,24 @@ bool cursorInsideWindow() {
   return pt.x >= rc.left && pt.x < rc.right && pt.y >= rc.top && pt.y < rc.bottom;
 }
 
+// Opens the full grid at the final height in one step. The animated path resizes
+// the window repeatedly, and each resize fires WM_MOUSELEAVE - which schedules a
+// collapse, and collapsing resets the reveal.
+void revealGrid() {
+  if (!g_scene || g_scene->folderRevealed()) return;
+
+  g_scene->setFolderRevealed(true);
+  g_scene->setHoveredSeeMore(false);
+  g_scene->setHoveredTile(-1);
+
+  KillTimer(g_hwnd, kSeeMoreTimer);
+  KillTimer(g_hwnd, kCollapseTimer);
+  g_h = targetHeight();
+  g_w = targetWidth();
+  applyWindowSize();
+  InvalidateRect(g_hwnd, nullptr, FALSE);
+}
+
 void setMode(PanelMode mode) {
   if (g_mode == mode) return;
   g_mode = mode;
@@ -294,7 +318,11 @@ void setMode(PanelMode mode) {
   if (g_telemetry) g_telemetry->setHeavyMode(mode == PanelMode::Expanded);
 
   // Every hover starts from the folder, so the panel always opens the same size.
-  if (g_scene && mode == PanelMode::Compact) g_scene->setFolderRevealed(false);
+  if (g_scene && mode == PanelMode::Compact) {
+    g_scene->setFolderRevealed(false);
+    g_scene->setHoveredSeeMore(false);
+  }
+  KillTimer(g_hwnd, kSeeMoreTimer);
 }
 
 
@@ -331,6 +359,9 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
       } else if (wParam == kAnimTimer) {
         animate();
+      } else if (wParam == kSeeMoreTimer) {
+        KillTimer(hwnd, kSeeMoreTimer);
+        revealGrid();
       } else if (wParam == kCollapseTimer) {
         if (!cursorInsideWindow()) {
           g_scene->setHoveredTile(-1);
@@ -359,6 +390,13 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
           g_scene->setHoveredSeeMore(hotMore);
           InvalidateRect(hwnd, nullptr, FALSE);
         }
+
+        // Resting on See more opens the grid; no click required.
+        if (hotMore) {
+          SetTimer(hwnd, kSeeMoreTimer, kSeeMoreDwellMs, nullptr);
+        } else {
+          KillTimer(hwnd, kSeeMoreTimer);
+        }
       }
 
       TRACKMOUSEEVENT tme{};
@@ -374,6 +412,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
       // WM_MOUSELEAVE even though the pointer is still on the panel. Collapsing
       // immediately caused the panel to flicker open/closed, so the decision is
       // deferred and re-checked against the real cursor position.
+      KillTimer(hwnd, kSeeMoreTimer);
       SetTimer(hwnd, kCollapseTimer, kCollapseDelayMs, nullptr);
       return 0;
 
@@ -435,18 +474,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         if (g_scene->hitTestFolder(pixelsToDips(px), pixelsToDips(GET_Y_LPARAM(lParam)),
                                    g_mode)) {
-          g_scene->setFolderRevealed(true);
-          g_scene->setHoveredSeeMore(false);
-
-          // Snap straight to the new height instead of animating. The animated
-          // path resizes the window repeatedly, and each resize fires
-          // WM_MOUSELEAVE - which schedules a collapse, and the collapse resets
-          // the reveal. One instant resize has neither problem.
-          KillTimer(hwnd, kCollapseTimer);
-          g_h = targetHeight();
-          g_w = targetWidth();
-          applyWindowSize();
-          InvalidateRect(hwnd, nullptr, FALSE);
+          revealGrid();
           return 0;
         }
         const int py = GET_Y_LPARAM(lParam);
