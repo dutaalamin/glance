@@ -129,7 +129,9 @@ float targetHeight() {
   if (g_mode == PanelMode::Compact) return layout::kNotchH;
   const size_t apps = g_launcher ? g_launcher->apps().size() : 0;
   const bool withMedia = g_media && g_media->now().hasSession;
-  return Scene::panelHeightFor(apps, withMedia, g_scene ? g_scene->notificationRowCount() : 0);
+  const bool folderOnly = g_scene && !g_scene->folderRevealed();
+  return Scene::panelHeightFor(apps, withMedia,
+                               g_scene ? g_scene->notificationRowCount() : 0, folderOnly);
 }
 
 void discardRenderTarget() {
@@ -290,6 +292,9 @@ void setMode(PanelMode mode) {
   SetTimer(g_hwnd, kAnimTimer, kAnimIntervalMs, nullptr);
 
   if (g_telemetry) g_telemetry->setHeavyMode(mode == PanelMode::Expanded);
+
+  // Every hover starts from the folder, so the panel always opens the same size.
+  if (g_scene && mode == PanelMode::Compact) g_scene->setFolderRevealed(false);
 }
 
 
@@ -374,9 +379,13 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
       // on a tile is two launches, not a hide gesture.
       bool overTile = false;
       if (g_mode == PanelMode::Expanded && g_scene) {
-        overTile = g_scene->hitTestLauncher(pixelsToDips(GET_X_LPARAM(lParam)),
-                                            pixelsToDips(GET_Y_LPARAM(lParam)),
-                                            g_mode) >= 0;
+        const float dx = pixelsToDips(GET_X_LPARAM(lParam));
+        const float dy = pixelsToDips(GET_Y_LPARAM(lParam));
+        // The folder button counts as an interactive target too. Without this,
+        // revealing the grid and clicking again in the same spot arrives as a
+        // double-click and hides the island instead of opening anything.
+        overTile = g_scene->hitTestLauncher(dx, dy, g_mode) >= 0 ||
+                   g_scene->hitTestFolder(dx, dy, g_mode);
       }
       if (!overTile) setHidden(true);
       return 0;
@@ -420,6 +429,22 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
       if (g_mode == PanelMode::Expanded && g_scene && g_launcher) {
         const int px = GET_X_LPARAM(lParam);
+
+        if (g_scene->hitTestFolder(pixelsToDips(px), pixelsToDips(GET_Y_LPARAM(lParam)),
+                                   g_mode)) {
+          g_scene->setFolderRevealed(true);
+
+          // Snap straight to the new height instead of animating. The animated
+          // path resizes the window repeatedly, and each resize fires
+          // WM_MOUSELEAVE - which schedules a collapse, and the collapse resets
+          // the folder. One instant resize has neither problem.
+          KillTimer(hwnd, kCollapseTimer);
+          g_h = targetHeight();
+          g_w = targetWidth();
+          applyWindowSize();
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
         const int py = GET_Y_LPARAM(lParam);
         const float dx = pixelsToDips(px);
         const float dy = pixelsToDips(py);
@@ -654,6 +679,7 @@ bool savePng(const wchar_t* path, const Snapshot& snap, PanelMode mode, float sc
 
   if (g_ambient) {
     g_ambient->poll();
+    g_scene->setAmbient(&g_ambient->state());
     g_ambient->syncIcons(nullptr);
   }
 
@@ -662,7 +688,8 @@ bool savePng(const wchar_t* path, const Snapshot& snap, PanelMode mode, float sc
   const float lh =
       mode == PanelMode::Compact ? layout::kNotchH
                                  : Scene::panelHeightFor(apps, g_media && g_media->now().hasSession,
-                                                         g_scene->notificationRowCount());
+                                                         g_scene->notificationRowCount(),
+                                                         !g_scene->folderRevealed());
 
   const UINT width = static_cast<UINT>(lw * scale);
   const UINT height = static_cast<UINT>(lh * scale);

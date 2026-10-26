@@ -28,10 +28,20 @@ class Scene {
  public:
   // Height that exactly fits the launcher grid (and the now-playing card when
   // something is playing), so the panel never shows a pool of empty space.
-  static float panelHeightFor(size_t appCount, bool withMedia, int notifRows = 0);
+  static float panelHeightFor(size_t appCount, bool withMedia, int notifRows = 0,
+                              bool folderOnly = false);
 
   // Rows the panel will actually show, for height maths before drawing.
   int notificationRowCount() const;
+
+  // The launcher grid sits behind a single folder button until it is clicked.
+  // Collapsing the panel resets this, so every hover starts from the same place.
+  void setFolderRevealed(bool revealed) { folderRevealed_ = revealed; }
+  bool folderRevealed() const { return folderRevealed_; }
+
+  // True when the point is on the folder button. Only meaningful while the
+  // panel is expanded with the grid still hidden.
+  bool hitTestFolder(float x, float y, PanelMode mode) const;
 
   bool init(IDWriteFactory* dwrite, ID2D1Factory* d2d, Launcher* launcher);
   void draw(ID2D1RenderTarget* rt, const Snapshot& snap, PanelMode mode, float width,
@@ -125,6 +135,9 @@ class Scene {
   NowPlaying media_;
   D2D1_RECT_F mediaButtons_[3]{};
   bool mediaButtonsValid_ = false;
+  D2D1_RECT_F folderRect_{};
+  bool folderRevealed_ = false;
+
   D2D1_RECT_F progressRect_{};
   D2D1_RECT_F volumeRect_{};
   bool dragging_ = false;

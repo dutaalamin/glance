@@ -14,7 +14,10 @@ Nothing else - no charts, no telemetry dashboard, no account.
   dropped from the row rather than allowed to collide with the clock, so the time
   never looks crowded. An icon disappears on its own an hour after the last
   notification from that app; nothing has to be dismissed. While a track plays the title takes the clock's place.
-- **Hovering**: grows into a 4-column launcher grid. Click a tile to open the app.
+- **Hovering**: grows into a compact panel with a single **Apps** row.
+  Click it to reveal the 4-column launcher grid; click again to open an app.
+  Leaving the panel collapses it and puts the folder row back, so every hover
+  starts the same size.
 - **Now playing**: when any player is active (Spotify, browsers, VLC, Groove) a
   card above the grid shows the track, a seekable progress bar with elapsed and
   total time, cover art and prev / play-pause / next centred on the card. While
@@ -87,6 +90,8 @@ leaves a half-empty row.
 | `WM_CAPTURECHANGED` clears the drag | Capture can be taken away mid-drag (Alt+Tab, another window, a shell overlay). The drag flag gates the 1 Hz media refresh, so a stolen capture used to freeze the card until restart. |
 | Notifications read from `wpndatabase.db`, not the notification API | `UserNotificationListener` reports `GetAccessStatus = Allowed` here, but `GetNotificationsAsync` never completes (measured: status stayed `Started` for 10 s). Unpackaged processes cannot use it; shipping needs an MSIX identity. The store is opened read-only in WAL mode, so a live reader neither blocks the service nor misses recent rows. Only two columns are read: `Handler.PrimaryId` and `Notification.ArrivalTime`. Content is never touched. |
 | Icon from `shell:AppsFolder\<AUMID>` | Packaged apps expose their real icon through the shell namespace even though the calling process is unpackaged. Verified on WhatsApp, Snipping Tool and Orca AUMIDs; system toast handlers such as `Print.PrinterCleanupTask` have no entry and fall back to no icon rather than a generic square. |
+| Apps grid behind one folder row | Twelve tiles needed 440 dip - 52% of a 1080p work area - and the panel is opened dozens of times a day. A single row cuts the resting panel to 354 dip. The cost is one extra click; the alternative (6 columns) broke labels like "Remote Desktop" into unreadable fragments, and 5 columns did not reduce the row count at all. |
+| Folder reveal resizes instantly, not animated | The animated path resizes the window repeatedly and each resize fires `WM_MOUSELEAVE`, which schedules a collapse - and collapsing resets the folder. One instant resize has neither problem and cannot be undone by a stray mouse event. |
 | Clock centred, icons anchored right | Centring clock+icons as one group moved the time off-centre whenever a badge appeared, which read as cramped. The clock now sits on the centre line and the icon row hangs off the right edge, capped by a measured check that drops icons until they clear. |
 | Notch widened to 268 dip | Four 15 px icons plus gaps need the room; at 236 the group overlapped the clock. |
 | Icons expire after 60 minutes, no dismissal gesture | Every mouse gesture on the notch is already taken: movement expands the panel, right-click hides the island, middle-click mutes, and the left-drag area belongs to the volume and seek sliders. A click target on the 40 px pill would also fire *after* the panel had already opened. Time-based expiry needs no gesture, cannot be triggered by accident, and matches what an ambient indicator should be - a hint about the recent past, not a queue to manage. |

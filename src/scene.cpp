@@ -81,7 +81,8 @@ constexpr float kGridTop = 18.0f;    // space under the notch
 constexpr float kFooterH = 16.0f;  // bottom breathing room only; no caption row
 constexpr float kIdleH = 68.0f;
 constexpr float kNotifRowH = 22.0f;
-constexpr int kMaxNotifRows = 3;
+constexpr int kMaxNotifRows = 2;
+constexpr float kFolderH = 72.0f;
 constexpr float kMediaH = 148.0f;
 constexpr float kSeekHitH = 22.0f;
 // Must match drawVolumeBlock's glyph + gap + slider + gap + percentage maths.
@@ -94,14 +95,16 @@ int Scene::notificationRowCount() const {
   return std::min<int>(static_cast<int>(ambient_->badges.size()), kMaxNotifRows);
 }
 
-float Scene::panelHeightFor(size_t appCount, bool withMedia, int notifRows) {
+float Scene::panelHeightFor(size_t appCount, bool withMedia, int notifRows, bool folderOnly) {
   const int cols = appCount <= 4 ? static_cast<int>(appCount) : 4;
   const int count = static_cast<int>(appCount);
   const int rows = cols > 0 ? (count + cols - 1) / cols : 0;
 
-  const float grid = rows > 0 ? static_cast<float>(rows) * kGridTileH +
-                                     static_cast<float>(rows - 1) * kGridGap
-                               : 0.0f;
+  const float gridHeight = rows > 0 ? static_cast<float>(rows) * kGridTileH +
+                                          static_cast<float>(rows - 1) * kGridGap
+                                    : 0.0f;
+  // Grid hidden behind the folder button: one short row instead of three.
+  const float grid = folderOnly ? kFolderH : gridHeight;
   // The strip above the grid is the media card when something is playing and a
   // bare volume slider otherwise, so the grid never jumps between the two.
   const int notifLines = withMedia ? 0 : std::clamp(notifRows, 0, kMaxNotifRows);
@@ -892,9 +895,71 @@ void Scene::drawPanel(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
   const float inner = w - pad * 2.0f;
 
   const float mediaHeight = drawMediaCard(rt, pad, top + kGridTop, inner, s);
-  drawLauncherGrid(rt, pad, top + kGridTop + mediaHeight, inner);
+
+  if (folderRevealed_) {
+    drawLauncherGrid(rt, pad, top + kGridTop + mediaHeight, inner);
+  } else {
+    // One row standing in for the whole grid. Everything is one click further
+    // away, but the panel no longer covers half the screen.
+    ID2D1SolidColorBrush* fill = nullptr;
+    ID2D1SolidColorBrush* stroke = nullptr;
+    ID2D1SolidColorBrush* text = nullptr;
+    ID2D1SolidColorBrush* accent = nullptr;
+    rt->CreateSolidColorBrush(kTile, &fill);
+    rt->CreateSolidColorBrush(kStroke, &stroke);
+    rt->CreateSolidColorBrush(kText, &text);
+    rt->CreateSolidColorBrush(kMint, &accent);
+
+    const float y = top + kGridTop + mediaHeight;
+    folderRect_ = D2D1::RectF(pad, y, pad + inner, y + kFolderH - 8.0f);
+    fillRound(rt, fill, folderRect_, 20.0f);
+    strokeRound(rt, stroke, folderRect_, 20.0f);
+
+    // Glyph: four squares, the universal "all apps" mark.
+    const float cx = folderRect_.left + 34.0f;
+    const float cy = folderRect_.top + (folderRect_.bottom - folderRect_.top) * 0.5f;
+    const float dot = 4.5f;
+    const float step = 6.5f;
+    for (int gy = 0; gy < 2; ++gy) {
+      for (int gx = 0; gx < 2; ++gx) {
+        rt->FillRoundedRectangle(
+            D2D1::RoundedRect(
+                D2D1::RectF(cx - step + gx * step * 2 - dot, cy - step + gy * step * 2 - dot,
+                            cx - step + gx * step * 2 + dot, cy - step + gy * step * 2 + dot),
+                2.0f, 2.0f),
+            accent);
+      }
+    }
+
+    textAt(rt, row_, L"Apps", D2D1::RectF(cx + 22.0f, folderRect_.top + 14.0f,
+                                          folderRect_.right - 12.0f,
+                                          folderRect_.bottom - 14.0f),
+           text);
+
+    if (launcher_) {
+      wchar_t count[32]{};
+      swprintf(count, 32, L"%zu", launcher_->apps().size());
+      textAt(rt, tiny_, count,
+             D2D1::RectF(folderRect_.right - 60.0f, folderRect_.top, folderRect_.right - 16.0f,
+                         folderRect_.bottom),
+             text, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    }
+
+    tileCount_ = 0;  // no tiles are hittable while the grid is hidden
+
+    if (accent) accent->Release();
+    if (text) text->Release();
+    if (stroke) stroke->Release();
+    if (fill) fill->Release();
+  }
 
   (void)h;
+}
+
+bool Scene::hitTestFolder(float x, float y, PanelMode mode) const {
+  if (mode != PanelMode::Expanded || folderRevealed_) return false;
+  return x >= folderRect_.left && x <= folderRect_.right && y >= folderRect_.top &&
+         y <= folderRect_.bottom;
 }
 
 int Scene::hitTestLauncher(float x, float y, PanelMode mode) const {
