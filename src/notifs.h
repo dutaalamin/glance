@@ -37,13 +37,13 @@ class NotifSource {
 
   const std::vector<NotifApp>& apps() const { return apps_; }
 
-  // How far back a notification still counts. Older ones are history, not
-  // something to keep decorating the desktop with.
-  void setWindowHours(int hours) { windowHours_ = hours; }
+  // How far back a notification still counts. Older ones are history: an icon
+  // that never leaves stops meaning anything.
+  void setWindowMinutes(int minutes) { windowMinutes_ = minutes; }
 
  private:
   struct Impl;
   Impl* impl_ = nullptr;
   std::vector<NotifApp> apps_;
-  int windowHours_ = 12;
+  int windowMinutes_ = 60;
 };

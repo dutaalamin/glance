@@ -12,7 +12,8 @@ Nothing else - no charts, no telemetry dashboard, no account.
 - **Resting**: a 268 x 40 pill at the top centre. The clock stays exactly on the
   centre line; up to four notification icons anchor to the right edge. Icons are
   dropped from the row rather than allowed to collide with the clock, so the time
-  never looks crowded. While a track plays the title takes the clock's place.
+  never looks crowded. An icon disappears on its own an hour after the last
+  notification from that app; nothing has to be dismissed. While a track plays the title takes the clock's place.
 - **Hovering**: grows into a 4-column launcher grid. Click a tile to open the app.
 - **Now playing**: when any player is active (Spotify, browsers, VLC, Groove) a
   card above the grid shows the track, a seekable progress bar with elapsed and
@@ -85,6 +86,7 @@ leaves a half-empty row.
 | Icon from `shell:AppsFolder\<AUMID>` | Packaged apps expose their real icon through the shell namespace even though the calling process is unpackaged. Verified on WhatsApp, Snipping Tool and Orca AUMIDs; system toast handlers such as `Print.PrinterCleanupTask` have no entry and fall back to no icon rather than a generic square. |
 | Clock centred, icons anchored right | Centring clock+icons as one group moved the time off-centre whenever a badge appeared, which read as cramped. The clock now sits on the centre line and the icon row hangs off the right edge, capped by a measured check that drops icons until they clear. |
 | Notch widened to 268 dip | Four 15 px icons plus gaps need the room; at 236 the group overlapped the clock. |
+| Icons expire after 60 minutes, no dismissal gesture | Every mouse gesture on the notch is already taken: movement expands the panel, right-click hides the island, middle-click mutes, and the left-drag area belongs to the volume and seek sliders. A click target on the 40 px pill would also fire *after* the panel had already opened. Time-based expiry needs no gesture, cannot be triggered by accident, and matches what an ambient indicator should be - a hint about the recent past, not a queue to manage. |
 | Badges in the notch, not the panel | Measured: the panel is invisible while collapsed, which is most of the time. Putting the icons next to the clock makes them readable at a glance; the panel keeps the date, battery and volume. |
 | Notification count is not the unread count | The store counts toast *arrivals*, which is history: Orca showed 10 arrivals but zero unread. Only "has something recent" is taken from it. The number drawn next to a logo comes from the app's own title, where it means actual unread. Zero counts are not drawn at all - a row of "0"s was the first thing the screenshot showed. |
 | Vendored SQLite, `SQLITE_THREADSAFE=0` | No system SQLite on Windows, and the panel is single-threaded, so the smaller build is the correct one. Compiled once into `build/sqlite3.o` and reused. |

@@ -122,7 +122,16 @@ void NotifSource::poll() {
   // notification arrives after a fresh sign-in.
   if (!impl_->db && !impl_->open()) return;
 
-  const uint64_t cutoff = nowFiletime() - static_cast<uint64_t>(windowHours_) * 3600ull * 10000000ull;
+  // Diagnostics can stretch the window so the icon row can be inspected on a
+  // machine whose last notification was hours ago.
+  int minutes = windowMinutes_;
+  if (const wchar_t* forced = _wgetenv(L"GLANCE_NOTIF_MINUTES")) {
+    const int v = _wtoi(forced);
+    if (v > 0) minutes = v;
+  }
+
+  const uint64_t cutoff =
+      nowFiletime() - static_cast<uint64_t>(minutes) * 60ull * 10000000ull;
 
   static const char* kSql =
       "SELECT h.PrimaryId AS aumid, COUNT(*) AS c, MAX(n.ArrivalTime) AS last "
