@@ -103,6 +103,7 @@ float Scene::panelHeightFor(size_t appCount, bool withMedia) {
 
 bool Scene::init(IDWriteFactory* dwrite, ID2D1Factory* d2d, Launcher* launcher) {
   d2d_ = d2d;
+  dwrite_ = dwrite;
   launcher_ = launcher;
 
   auto make = [&](IDWriteTextFormat** out, DWRITE_FONT_WEIGHT weight, float size) {
@@ -199,12 +200,30 @@ void Scene::draw(ID2D1RenderTarget* rt, const Snapshot& s, PanelMode mode, float
   if (expanded) drawPanel(rt, s, w, h, 38.0f);
 }
 
-void Scene::drawNotch(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h, bool expanded) {
-  (void)expanded;
-  ID2D1SolidColorBrush *textB = nullptr, *mutedB = nullptr;
+float Scene::measureText(const wchar_t* text, IDWriteTextFormat* format) {
+  if (!dwrite_ || !format || !text) return 0.0f;
 
+  IDWriteTextLayout* layout = nullptr;
+  if (FAILED(dwrite_->CreateTextLayout(text, static_cast<UINT32>(wcslen(text)), format,
+                                       1000.0f, 100.0f, &layout)) ||
+      !layout) {
+    return 0.0f;
+  }
+
+  DWRITE_TEXT_METRICS metrics{};
+  const float width = SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.width : 0.0f;
+  layout->Release();
+  return width;
+}
+
+void Scene::drawNotch(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h,
+                      bool expanded) {
+  (void)expanded;
+
+  ID2D1SolidColorBrush *textB = nullptr, *mutedB = nullptr, *accentB = nullptr;
   rt->CreateSolidColorBrush(kText, &textB);
   rt->CreateSolidColorBrush(kMuted, &mutedB);
+  rt->CreateSolidColorBrush(kMint, &accentB);
 
   const float cy = h * 0.5f;
 
@@ -215,13 +234,65 @@ void Scene::drawNotch(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
                               (media_.artist.empty() ? L"" : L"  \u00B7  " + elide(media_.artist, 16));
     textAt(rt, timeNotch_, line.c_str(), D2D1::RectF(0.0f, cy - 10.0f, w, cy + 10.0f),
            textB, DWRITE_TEXT_ALIGNMENT_CENTER);
-  } else {
-    wchar_t clock[16]{};
-    swprintf(clock, 16, L"%02d:%02d", s.hour, s.minute);
-    textAt(rt, timeNotch_, clock, D2D1::RectF(0.0f, cy - 10.0f, w, cy + 10.0f), textB,
-           DWRITE_TEXT_ALIGNMENT_CENTER);
+
+    if (mutedB) mutedB->Release();
+    if (textB) textB->Release();
+    if (accentB) accentB->Release();
+    return;
   }
 
+  wchar_t clock[16]{};
+  swprintf(clock, 16, L"%02d:%02d", s.hour, s.minute);
+
+  // Notification icons sit beside the clock, not in the panel. The notch is the
+  // only thing visible while collapsed, so that is where a glance has to land.
+  const int maxIcons = ambient_ ? std::min<int>(static_cast<int>(ambient_->badges.size()), 4) : 0;
+
+  if (maxIcons <= 0) {
+    textAt(rt, timeNotch_, clock, D2D1::RectF(0.0f, cy - 10.0f, w, cy + 10.0f), textB,
+           DWRITE_TEXT_ALIGNMENT_CENTER);
+
+    if (mutedB) mutedB->Release();
+    if (textB) textB->Release();
+    if (accentB) accentB->Release();
+    return;
+  }
+
+  const float iconSize = 15.0f;
+  const float iconGap = 7.0f;
+  const float clockGap = 8.0f;
+
+  const float clockW = measureText(clock, timeNotch_);
+  const float iconsW = static_cast<float>(maxIcons) * iconSize +
+                       static_cast<float>(maxIcons - 1) * iconGap;
+  const float groupW = clockW + (clockW > 0.0f ? clockGap : 0.0f) + iconsW;
+
+  // Centre the clock-plus-icons group as one unit, so the notch still reads as
+  // balanced rather than the clock drifting left as badges appear.
+  float x = (w - groupW) * 0.5f;
+  if (x < 4.0f) x = 4.0f;
+
+  textAt(rt, timeNotch_, clock, D2D1::RectF(x, cy - 10.0f, x + clockW + 2.0f, cy + 10.0f),
+         textB, DWRITE_TEXT_ALIGNMENT_LEADING);
+
+  float ix = x + clockW + (clockW > 0.0f ? clockGap : 0.0f);
+  for (int i = 0; i < maxIcons; ++i) {
+    const AppBadge& badge = ambient_->badges[static_cast<size_t>(i)];
+    const D2D1_RECT_F r =
+        D2D1::RectF(ix, cy - iconSize * 0.5f, ix + iconSize, cy + iconSize * 0.5f);
+
+    if (badge.icon) {
+      rt->DrawBitmap(badge.icon, r, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    } else {
+      // No icon resolved: a dot still says "something happened here".
+      rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(ix + iconSize * 0.5f, cy), 3.5f, 3.5f),
+                      accentB);
+    }
+
+    ix += iconSize + iconGap;
+  }
+
+  if (accentB) accentB->Release();
   if (mutedB) mutedB->Release();
   if (textB) textB->Release();
 }
@@ -487,9 +558,9 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
   rt->CreateSolidColorBrush(kMint, &accentB);
 
   if (!media_.hasSession) {
-    // Idle: date on the left; battery and unread badges on the right, with the
-    // volume slider outermost. The clock deliberately does NOT repeat here - the
-    // notch directly above already shows it.
+    // Idle: date on the left; battery then volume on the right. Notification
+    // icons live in the notch beside the clock instead of here, because the
+    // notch is the only thing visible while the panel is collapsed.
     if (!snap.date.empty()) {
       textAt(rt, small_, snap.date.c_str(),
              D2D1::RectF(x + 4.0f, y + 22.0f, x + w * 0.52f, y + 44.0f), textB);
@@ -513,60 +584,6 @@ float Scene::drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
       textAt(rt, tiny_, pct, D2D1::RectF(cursor - 56.0f, cy - 8.0f, cursor - 28.0f, cy + 8.0f),
              mutedB, DWRITE_TEXT_ALIGNMENT_TRAILING);
       cursor -= 56.0f + 12.0f;
-    }
-
-    // Unread badges, also right-aligned so they sit next to the battery.
-    if (ambient_ && !ambient_->badges.empty()) {
-      const float iconSize = 15.0f;
-      const float gap = 10.0f;
-
-      // Measure right to left, then draw left to right - keeps the list's own
-      // order while staying anchored to the right edge.
-      struct Cell {
-        size_t index;
-        float width;
-        bool hasCount;
-      };
-      std::vector<Cell> cells;
-      float total = 0.0f;
-      for (size_t i = 0; i < ambient_->badges.size(); ++i) {
-        const int count = ambient_->badges[i].count;
-        // A count of zero means "this app has something recent, no unread
-        // number published" - draw the icon alone rather than a bare 0.
-        const bool hasCount = count > 0;
-        wchar_t buf[8]{};
-        if (hasCount) swprintf(buf, 8, L"%d", count);
-        const float textW = hasCount ? 6.0f * static_cast<float>(wcslen(buf)) + 3.0f : 0.0f;
-        const float wcell = iconSize + textW;
-        cells.push_back({i, wcell, hasCount});
-        total += wcell + (i ? gap : 0.0f);
-      }
-
-      float bx = cursor - total;
-      for (size_t c = 0; c < cells.size(); ++c) {
-        const AppBadge& badge = ambient_->badges[cells[c].index];
-        if (c > 0) bx += gap;
-
-        if (badge.icon) {
-          const D2D1_RECT_F r = D2D1::RectF(bx, cy - iconSize * 0.5f, bx + iconSize,
-                                            cy + iconSize * 0.5f);
-          rt->DrawBitmap(badge.icon, r, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-        } else {
-          // No icon available: a dot still conveys that something is unread.
-          rt->FillEllipse(D2D1::Ellipse(D2D1::Point2F(bx + iconSize * 0.5f, cy), 4.0f, 4.0f),
-                          accentB);
-        }
-
-        if (cells[c].hasCount) {
-          wchar_t count[8]{};
-          swprintf(count, 8, L"%d", badge.count);
-          textAt(rt, tiny_, count,
-                 D2D1::RectF(bx + iconSize + 3.0f, cy - 8.0f, bx + cells[c].width, cy + 8.0f),
-                 textB);
-        }
-
-        bx += cells[c].width;
-      }
     }
 
     drawVolumeBlock(rt, d2d_, tiny_, volumeRight, cy, volume_, muted_, volumeAvailable_,

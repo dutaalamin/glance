@@ -85,12 +85,17 @@ class Scene {
 
  private:
   void drawNotch(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h, bool expanded);
+
+  // Width of `text` in `format`, for centring a group of text plus icons.
+  // Returns 0 when the factory is unavailable.
+  float measureText(const wchar_t* text, IDWriteTextFormat* format);
   void drawPanel(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h, float top);
   void drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w);
   float drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
                       const Snapshot& snap);
 
   ID2D1Factory* d2d_ = nullptr;
+  IDWriteFactory* dwrite_ = nullptr;  // only for measuring the clock in the notch
   Launcher* launcher_ = nullptr;
 
   IDWriteTextFormat* time_ = nullptr;

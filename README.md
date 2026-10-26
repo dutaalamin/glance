@@ -9,9 +9,10 @@ Nothing else - no charts, no telemetry dashboard, no account.
 
 ## What it does
 
-- **Resting**: a 236 x 40 pill at the top centre holding only the clock. There is
-  no logo, no chevron and no face: at this size anything else competed with the
-  time. While a track plays the title takes the clock's place.
+- **Resting**: a 236 x 40 pill at the top centre holding the clock, plus one icon
+  per app with recent notifications - up to four, newest first. The clock and the
+  icons are measured and centred as one group, so the time does not drift left as
+  badges appear. While a track plays the title takes the clock's place.
 - **Hovering**: grows into a 4-column launcher grid. Click a tile to open the app.
 - **Now playing**: when any player is active (Spotify, browsers, VLC, Groove) a
   card above the grid shows the track, a seekable progress bar with elapsed and
@@ -26,10 +27,9 @@ Nothing else - no charts, no telemetry dashboard, no account.
   on the right. The clock is not repeated there - the notch above already shows it.
 - **Battery**: percentage plus a glyph with a bolt while charging. Hidden on a
   machine with no battery, because `BatteryFlag & 128` says so.
-- **Notification badges**: one icon per app that has something recent, taken
-  from the Windows notification store. Icon only by default; a count appears when
-  the app publishes a real unread number in its window title ("(7) Telegram").
-  Capped at five, newest first.
+- **Notification icons live in the notch, not the panel.** The notch is the only
+  thing on screen while collapsed or while the panel is closed, so that is where
+  a glance has to land. The expanded panel shows date, battery and volume only.
 - **No caption row**: the panel used to spell out "click to open / double-click to
   hide" under the last row. The tiles read as buttons on their own, so the line is
   gone and the panel ends just below the grid.
@@ -83,6 +83,7 @@ leaves a half-empty row.
 | `WM_CAPTURECHANGED` clears the drag | Capture can be taken away mid-drag (Alt+Tab, another window, a shell overlay). The drag flag gates the 1 Hz media refresh, so a stolen capture used to freeze the card until restart. |
 | Notifications read from `wpndatabase.db`, not the notification API | `UserNotificationListener` reports `GetAccessStatus = Allowed` here, but `GetNotificationsAsync` never completes (measured: status stayed `Started` for 10 s). Unpackaged processes cannot use it; shipping needs an MSIX identity. The store is opened read-only in WAL mode, so a live reader neither blocks the service nor misses recent rows. Only two columns are read: `Handler.PrimaryId` and `Notification.ArrivalTime`. Content is never touched. |
 | Icon from `shell:AppsFolder\<AUMID>` | Packaged apps expose their real icon through the shell namespace even though the calling process is unpackaged. Verified on WhatsApp, Snipping Tool and Orca AUMIDs; system toast handlers such as `Print.PrinterCleanupTask` have no entry and fall back to no icon rather than a generic square. |
+| Badges in the notch, not the panel | Measured: the panel is invisible while collapsed, which is most of the time. Putting the icons next to the clock makes them readable at a glance; the panel keeps the date, battery and volume. |
 | Notification count is not the unread count | The store counts toast *arrivals*, which is history: Orca showed 10 arrivals but zero unread. Only "has something recent" is taken from it. The number drawn next to a logo comes from the app's own title, where it means actual unread. Zero counts are not drawn at all - a row of "0"s was the first thing the screenshot showed. |
 | Vendored SQLite, `SQLITE_THREADSAFE=0` | No system SQLite on Windows, and the panel is single-threaded, so the smaller build is the correct one. Compiled once into `build/sqlite3.o` and reused. |
 | Ambient icons rebuilt per render target | Same pattern as the launcher: WIC sources are kept, D2D bitmaps are recreated when the target changes. The snapshot target and the window target are different objects, so sharing one bitmap would be a use-after-free. |
