@@ -82,7 +82,7 @@ constexpr float kFooterH = 16.0f;  // bottom breathing room only; no caption row
 constexpr float kIdleH = 68.0f;
 constexpr float kNotifRowH = 22.0f;
 constexpr int kMaxNotifRows = 2;
-constexpr float kFolderH = 64.0f;
+constexpr float kSeeMoreH = 36.0f;
 // Breathing room between the notification rows and the Apps row. Without it the
 // two read as one block and the notification text gets lost.
 constexpr float kFolderGap = 14.0f;
@@ -107,7 +107,8 @@ float Scene::panelHeightFor(size_t appCount, bool withMedia, int notifRows, bool
                                           static_cast<float>(rows - 1) * kGridGap
                                     : 0.0f;
   // Grid hidden behind the folder button: one short row instead of three.
-  const float grid = folderOnly ? (kFolderH + kFolderGap) : gridHeight;
+  const float collapsed = static_cast<float>(kGridTileH) + kGridGap + kFolderGap + kSeeMoreH;
+  const float grid = folderOnly ? collapsed : gridHeight;
   // The strip above the grid is the media card when something is playing and a
   // bare volume slider otherwise, so the grid never jumps between the two.
   const int notifLines = withMedia ? 0 : std::clamp(notifRows, 0, kMaxNotifRows);
@@ -322,7 +323,8 @@ void Scene::drawNotch(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
   if (textB) textB->Release();
 }
 
-void Scene::drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w) {
+void Scene::drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w,
+                             size_t limit) {
   tileCount_ = 0;
   if (!launcher_ || launcher_->apps().empty()) return;
 
@@ -349,7 +351,11 @@ void Scene::drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w) {
 
   const float tileW = (w - gap * static_cast<float>(cols - 1)) / static_cast<float>(cols);
 
-  for (size_t i = 0; i < apps.size(); ++i) {
+  // `limit` caps how many tiles are drawn and, with it, how many are hittable.
+  // The collapsed panel uses it to show one row while the full grid is hidden.
+  const size_t shown = limit == 0 ? apps.size() : std::min(limit, apps.size());
+
+  for (size_t i = 0; i < shown; ++i) {
     const int col = static_cast<int>(i) % cols;
     const int row = static_cast<int>(i) / cols;
 
@@ -899,30 +905,48 @@ void Scene::drawPanel(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h
 
   const float mediaHeight = drawMediaCard(rt, pad, top + kGridTop, inner, s);
 
+  const float gridTop = top + kGridTop + mediaHeight;
+
   if (folderRevealed_) {
-    drawLauncherGrid(rt, pad, top + kGridTop + mediaHeight, inner);
+    drawLauncherGrid(rt, pad, gridTop, inner);
   } else {
-    // One row standing in for the whole grid. Everything is one click further
-    // away, but the panel no longer covers half the screen.
+    // One row of the four most-used apps stays one click away; everything else
+    // sits behind "See more". This is the compromise between a full grid that
+    // covered half the screen and a single folder row that cost a click for
+    // even the app you open every hour.
+    const size_t quick = launcher_ ? std::min<size_t>(4, launcher_->apps().size()) : 0;
+    drawLauncherGrid(rt, pad, gridTop, inner, quick);
+
     ID2D1SolidColorBrush* fill = nullptr;
     ID2D1SolidColorBrush* stroke = nullptr;
     ID2D1SolidColorBrush* text = nullptr;
+    ID2D1SolidColorBrush* hover = nullptr;
+    ID2D1SolidColorBrush* idle = nullptr;
     rt->CreateSolidColorBrush(kTile, &fill);
-    rt->CreateSolidColorBrush(kStroke, &stroke);
+    rt->CreateSolidColorBrush(kStrokeSoft, &stroke);
     rt->CreateSolidColorBrush(kText, &text);
+    rt->CreateSolidColorBrush(kMuted, &idle);
+    rt->CreateSolidColorBrush(kTileHover, &hover);
 
-    const float y = top + kGridTop + mediaHeight + kFolderGap;
-    folderRect_ = D2D1::RectF(pad, y, pad + inner, y + kFolderH);
-    fillRound(rt, fill, folderRect_, 20.0f);
-    strokeRound(rt, stroke, folderRect_, 20.0f);
+    const float y = gridTop + static_cast<float>(kGridTileH) + kGridGap + kFolderGap;
+    folderRect_ = D2D1::RectF(pad, y, pad + inner, y + kSeeMoreH);
 
-    // Just the word, centred. No glyph and no count: the row already says what
-    // it does, and the number was noise next to a notification list that shows
-    // the things that actually matter.
-    textAt(rt, row_, L"Apps", folderRect_, text, DWRITE_TEXT_ALIGNMENT_CENTER);
+    const bool hot = hoveredSeeMore_;
+    fillRound(rt, hot ? hover : fill, folderRect_, 14.0f);
 
-    tileCount_ = 0;  // no tiles are hittable while the grid is hidden
+    const size_t hidden = launcher_ ? launcher_->apps().size() - quick : 0;
+    wchar_t label[48]{};
+    if (hidden > 0) {
+      swprintf(label, 48, L"See more  (%zu)", hidden);
+    } else {
+      wcscpy_s(label, L"See more");
+    }
 
+    textAt(rt, small_, label, folderRect_, hot ? text : idle,
+           DWRITE_TEXT_ALIGNMENT_CENTER);
+
+    if (idle) idle->Release();
+    if (hover) hover->Release();
     if (text) text->Release();
     if (stroke) stroke->Release();
     if (fill) fill->Release();

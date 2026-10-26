@@ -34,13 +34,13 @@ class Scene {
   // Rows the panel will actually show, for height maths before drawing.
   int notificationRowCount() const;
 
-  // The launcher grid sits behind a single folder button until it is clicked.
-  // Collapsing the panel resets this, so every hover starts from the same place.
+  // False: one row of the most-used apps plus a "See more" row. True: the full
+  // grid. Collapsing the panel resets this, so every hover starts the same size.
   void setFolderRevealed(bool revealed) { folderRevealed_ = revealed; }
   bool folderRevealed() const { return folderRevealed_; }
 
-  // True when the point is on the folder button. Only meaningful while the
-  // panel is expanded with the grid still hidden.
+  // True when the point is on the "See more" row. Only meaningful while the
+  // panel is expanded with the full grid still hidden.
   bool hitTestFolder(float x, float y, PanelMode mode) const;
 
   bool init(IDWriteFactory* dwrite, ID2D1Factory* d2d, Launcher* launcher);
@@ -92,6 +92,8 @@ class Scene {
   // Highlighted tile, -1 for none. Set from WM_MOUSEMOVE so hovering a tile
   // reads as "this will open" before the click.
   void setHoveredTile(int index) { hoveredTile_ = index; }
+  void setHoveredSeeMore(bool hot) { hoveredSeeMore_ = hot; }
+  bool hoveredSeeMore() const { return hoveredSeeMore_; }
   int hoveredTile() const { return hoveredTile_; }
 
   void release();
@@ -103,7 +105,8 @@ class Scene {
   // Returns 0 when the factory is unavailable.
   float measureText(const wchar_t* text, IDWriteTextFormat* format);
   void drawPanel(ID2D1RenderTarget* rt, const Snapshot& s, float w, float h, float top);
-  void drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w);
+  void drawLauncherGrid(ID2D1RenderTarget* rt, float x, float y, float w,
+                        size_t limit = 0);
   float drawMediaCard(ID2D1RenderTarget* rt, float x, float y, float w,
                       const Snapshot& snap);
 
@@ -137,6 +140,7 @@ class Scene {
   bool mediaButtonsValid_ = false;
   D2D1_RECT_F folderRect_{};
   bool folderRevealed_ = false;
+  bool hoveredSeeMore_ = false;
 
   D2D1_RECT_F progressRect_{};
   D2D1_RECT_F volumeRect_{};

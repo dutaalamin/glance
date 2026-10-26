@@ -350,10 +350,13 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
       }
 
       if (g_scene) {
-        const int index = g_scene->hitTestLauncher(pixelsToDips(GET_X_LPARAM(lParam)),
-                                                   pixelsToDips(GET_Y_LPARAM(lParam)), g_mode);
-        if (index != g_scene->hoveredTile()) {
+        const float hx = pixelsToDips(GET_X_LPARAM(lParam));
+        const float hy = pixelsToDips(GET_Y_LPARAM(lParam));
+        const int index = g_scene->hitTestLauncher(hx, hy, g_mode);
+        const bool hotMore = g_scene->hitTestFolder(hx, hy, g_mode);
+        if (index != g_scene->hoveredTile() || hotMore != g_scene->hoveredSeeMore()) {
           g_scene->setHoveredTile(index);
+          g_scene->setHoveredSeeMore(hotMore);
           InvalidateRect(hwnd, nullptr, FALSE);
         }
       }
@@ -433,11 +436,12 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         if (g_scene->hitTestFolder(pixelsToDips(px), pixelsToDips(GET_Y_LPARAM(lParam)),
                                    g_mode)) {
           g_scene->setFolderRevealed(true);
+          g_scene->setHoveredSeeMore(false);
 
           // Snap straight to the new height instead of animating. The animated
           // path resizes the window repeatedly, and each resize fires
           // WM_MOUSELEAVE - which schedules a collapse, and the collapse resets
-          // the folder. One instant resize has neither problem.
+          // the reveal. One instant resize has neither problem.
           KillTimer(hwnd, kCollapseTimer);
           g_h = targetHeight();
           g_w = targetWidth();
