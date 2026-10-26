@@ -56,6 +56,20 @@ const KnownAumid kKnownAumids[] = {
     {L"Spotify", L"Spotify"},
 };
 
+// System surfaces that raise toasts nobody acts on from a launcher. Windows
+// Widgets in particular posts weather and news cards several times a day, and its
+// "app" is not something you can meaningfully open from here.
+bool isNoiseAumid(const std::wstring& aumid) {
+  static const wchar_t* kNoise[] = {
+      L"WebExperience",   // Widgets
+      L"FeedbackHub",     // Feedback Hub
+  };
+  for (const wchar_t* fragment : kNoise) {
+    if (wcsstr(aumid.c_str(), fragment)) return true;
+  }
+  return false;
+}
+
 std::wstring labelForAumid(const std::wstring& aumid) {
   for (const auto& known : kKnownAumids) {
     if (wcsstr(aumid.c_str(), known.fragment)) return known.label;
@@ -342,6 +356,7 @@ void AmbientSource::poll() {
   if (notifs_) {
     for (const auto& app : notifs_->apps()) {
       if (next.size() >= kMaxBadges) break;
+      if (isNoiseAumid(app.aumid)) continue;
 
       AppBadge badge;
       badge.app = labelForAumid(app.aumid);
